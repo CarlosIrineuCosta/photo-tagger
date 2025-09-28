@@ -1,0 +1,45 @@
+[project]
+name = "photo-tagger"
+version = "0.1.0"
+description = "RAW photo tagging pipeline (scan, cluster, CK/AI tagging, XMP write)."
+authors = [{name = "Carlos"}]
+requires-python = ">=3.11"
+dependencies = [
+    "accelerate",
+    "duckdb",
+    "exifread",
+    "fastapi",
+    "gradio",
+    "hdbscan",
+    "joblib",
+    "numba",
+    "numpy",
+    "open-clip-torch==2.24.0",
+    "openai",
+    "pandas",
+    "piexif",
+    "pillow",
+    "pydantic",
+    "pyarrow",
+    "pytesseract",
+    "pyyaml",
+    "rawpy",
+    "scikit-learn",
+    "scipy",
+    "tqdm",
+    "transformers",
+    "safetensors",
+    "torch",
+    "torchvision",
+    "uvicorn[standard]"
+]
+
+[project.optional-dependencies]
+dev = ["black", "isort", "ruff"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

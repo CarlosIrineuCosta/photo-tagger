@@ -1,0 +1,44 @@
+subjects:
+  - abstract
+  - portrait
+  - architecture
+  - monument
+  - street photo
+  - group
+  - dance
+  - theatre
+  - stage
+  - face
+  - hand
+  - flower
+  - mountain
+  - clouds
+  - sea
+  - plants
+  - macro
+  - shopping center
+  - interior
+  - lines
+  - car
+  - train
+  - airplane
+people_concepts:
+  - profile
+  - frontal
+  - bodyscape
+  - hands
+  - hair:blonde
+  - hair:brunette
+  - studio
+  - black-background
+  - outdoor
+gear:
+  - Pentax67
+  - C65
+places_coarse:
+  - Rio
+  - Jardim Botanico
+  - Paris
+  - Venice
+  - Florence
+  - Marseille

@@ -1,0 +1,50 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.dylib
+.env
+.venv/
+venv/
+.cache/
+.cache
+pip-wheel-metadata/
+
+# Project caches and data
+photo-tag-cache/
+/home/cdc/Storage/SSD500/photo-tag-cache/
+*.parquet
+*.sqlite
+*.csv
+audit.csv
+index.sqlite
+
+# Generated/processed files
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.dng
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.orf
+*.rw2
+
+# Config files with sensitive data
+config/config.yaml
+config/ck_vocab.yaml
+
+# Task tracking files
+tasks_*.md
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+tests/smoke/

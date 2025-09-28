@@ -1,0 +1,126 @@
+# photo-tagger configuration example
+
+roots:
+  - "/mnt/photos/E"    # update to your mounted Samba paths
+  - "/mnt/photos/F"
+
+runtime:
+  cache_root: "/home/cdc/Storage/SSD500/photo-tag-cache"  # location for proxies, parquet caches, audit files
+  workers: 2
+  cache_db: "index.sqlite"
+  reuse_cache: true
+
+proxy:
+  max_size: 1024
+  jpeg_quality: 90
+
+index:
+  include_ext: [".jpg",".jpeg",".tif",".tiff",".png",".dng",".cr2",".cr3",".nef",".arw",".orf",".rw2"]
+  exclude_regex: ["^\\._", "thumbs?"]
+  follow_symlinks: false
+
+embeddings:
+  model: "ViT-L-14"
+  pretrained: "openai"
+  batch_size: 128
+  device: "cuda"  # fallback to cpu if cuda unavailable
+
+clustering:
+  method: "hdbscan"
+  min_cluster_size: 6
+  min_samples: 2
+  cosine_threshold: 0.14
+  time_window_minutes: 60
+
+date_resolver:
+  sane_range: [1990, 2100]
+  outlier_days: 30
+  weights:
+    exif_original: 0.6
+    exif_create: 0.2
+    fs_time: 0.2
+    path_tokens: 0.2
+    sequence_consistency: 0.2
+
+ai_tagging:
+  max_ai_tags: 12
+  ai_prefix: "AI:"
+  use_openai_vision: true
+  openai_model: "gpt-4o-mini"
+  concept_bank_extra:
+    - car
+    - monument
+    - statue
+    - bridge
+    - cathedral
+    - reflection
+    - glass
+    - blue glass
+    - murano glass
+    - sunny day
+    - overcast
+    - rain
+    - graffiti
+    - industrial
+    - market
+    - bokeh
+    - long exposure
+    - macro
+  city_whitelist:
+    - New York
+    - Chicago
+    - Urbana
+    - Champaign
+    - Washington DC
+    - Seattle
+    - Orlando
+    - Rio de Janeiro
+    - São Paulo
+    - Pirassununga
+    - Petrópolis
+    - Teresópolis
+    - Niterói
+    - Fortaleza
+    - London
+    - Paris
+    - Chartres
+    - Versailles
+    - Rome
+    - Venice
+    - Florence
+    - Hamburg
+    - Berlin
+    - Sydney
+
+heuristics:
+  studio_black_vs_night:
+    enable: true
+    iso_threshold: 3200
+    face_required_for_studio: true
+    dark_ratio: 0.65
+  hand_tag:
+    suppress_on_nude: true
+
+people_policy:
+  allow_openai_on_people_sets: false
+  treat_people_sets_as_nude: true
+
+ck_tagging:
+  vocab_file: "config/ck_vocab.yaml"
+  max_ck_tags: 10
+  clip_model: "ViT-L-14"
+  clip_pretrained: "openai"
+
+xmp:
+  prefix_ck: "CK:"
+  prefix_ai: "AI:"
+  write_concurrency: 4
+
+review:
+  enable: true
+  default_apply_to_cluster: true
+  audit_csv: "audit.csv"
+
+ocr:
+  enable: false
+  min_confidence: 0.75
