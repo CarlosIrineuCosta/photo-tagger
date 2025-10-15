@@ -1,0 +1,659 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Mapping, Sequence, Tuple
+
+import hashlib
+
+import numpy as np
+
+from app.core import clip_model, export as export_core, labels as labels_core
+from app.core import medoid as medoid_core
+from app.core import scan as scan_core
+from app.core import score as score_core
+from app.core import thumbs as thumbs_core
+
+
+RUN_RECORD = "run.json"
+IMAGES_FILE = "images.txt"
+THUMBS_FILE = "thumbnails.json"
+IMAGE_EMBED_FILE = "image_embeddings.npy"
+LABEL_EMBED_FILE = "label_embeddings.npy"
+LABEL_META_FILE = "label_embeddings.json"
+SCORES_FILE = "scores.json"
+MEDOIDS_FILE = "medoids.csv"
+EXPORT_FILE = "results.csv"
+APPROVED_FILE = "approved.csv"
+LOG_FILE = "log.txt"
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def _generate_run_id() -> str:
+    return _now()
+
+
+def _ensure_run_path(run_dir: str | Path, run_id: str, create: bool = True) -> Path:
+    run_path = Path(run_dir) / run_id
+    if create:
+        run_path.mkdir(parents=True, exist_ok=True)
+    return run_path
+
+
+def _run_record_path(run_path: Path) -> Path:
+    return run_path / RUN_RECORD
+
+
+def _load_run_record(run_path: Path) -> Dict:
+    record_path = _run_record_path(run_path)
+    if record_path.exists():
+        return json.loads(record_path.read_text(encoding="utf-8"))
+    return {}
+
+
+def _save_run_record(run_path: Path, record: Mapping[str, object]) -> None:
+    record_path = _run_record_path(run_path)
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _update_run_record(run_path: Path, **updates) -> Dict:
+    record = _load_run_record(run_path)
+    record.update(updates)
+    _save_run_record(run_path, record)
+    return record
+
+
+def _append_log(run_path: Path, message: str) -> None:
+    log_path = run_path / LOG_FILE
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{timestamp}] {message}\n")
+
+
+def _paths_file(run_path: Path) -> Path:
+    return run_path / IMAGES_FILE
+
+
+def _thumbs_file(run_path: Path) -> Path:
+    return run_path / THUMBS_FILE
+
+
+def _scores_file(run_path: Path) -> Path:
+    return run_path / SCORES_FILE
+
+
+def _image_embeddings_file(run_path: Path) -> Path:
+    return run_path / IMAGE_EMBED_FILE
+
+
+def _label_embeddings_file(run_path: Path) -> Path:
+    return run_path / LABEL_EMBED_FILE
+
+
+def _label_meta_file(run_path: Path) -> Path:
+    return run_path / LABEL_META_FILE
+
+
+def _medoids_file(run_path: Path) -> Path:
+    return run_path / MEDOIDS_FILE
+
+
+def _export_file(run_path: Path) -> Path:
+    return run_path / EXPORT_FILE
+
+
+def _approved_file(run_path: Path) -> Path:
+    return run_path / APPROVED_FILE
+
+
+def _read_image_paths(run_path: Path) -> List[str]:
+    paths_file = _paths_file(run_path)
+    if not paths_file.exists():
+        raise FileNotFoundError(f"No scan results found at {paths_file}")
+    return [line.strip() for line in paths_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _write_image_paths(run_path: Path, paths: Sequence[str]) -> None:
+    paths_file = _paths_file(run_path)
+    paths_file.write_text("\n".join(paths) + ("\n" if paths else ""), encoding="utf-8")
+
+
+def _write_json(path: Path, data: object) -> None:
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _load_json(path: Path) -> object:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _duration(start: float) -> float:
+    return time.time() - start
+
+
+def _relative_path(full_path: Path, root: Path) -> str:
+    try:
+        rel = full_path.relative_to(root)
+        return str(rel)
+    except ValueError:
+        return full_path.name
+
+
+def cmd_scan(args: argparse.Namespace) -> str:
+    run_id = args.run_id or _generate_run_id()
+    run_path = _ensure_run_path(args.run_dir, run_id, create=True)
+    include_exts = args.include or sorted(scan_core.IMAGE_EXTENSIONS)
+    start = time.time()
+    image_paths = scan_core.scan_directory(
+        root=args.root,
+        include_exts=include_exts,
+        max_images=args.max_images,
+    )
+    _write_image_paths(run_path, image_paths)
+    record = _update_run_record(
+        run_path,
+        run_id=run_id,
+        root=str(Path(args.root).expanduser().resolve()),
+        include_exts=list(include_exts),
+        image_count=len(image_paths),
+    )
+    _append_log(run_path, f"scan completed ({len(image_paths)} files) in {_duration(start):.2f}s")
+    print(f"[scan] run_id={run_id} files={len(image_paths)}")
+    if args.run_id is None:
+        print(f"[scan] run directory: {run_path}")
+    return run_id
+
+
+def cmd_thumbs(args: argparse.Namespace) -> None:
+    run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    image_paths = _read_image_paths(run_path)
+    if not image_paths:
+        raise RuntimeError("No images available. Run 'scan' first.")
+
+    start = time.time()
+    thumbs = thumbs_core.build_thumbnails(
+        image_paths=image_paths,
+        cache_root=args.cache_root,
+        max_edge=args.max_edge,
+        overwrite=args.overwrite,
+    )
+    _write_json(_thumbs_file(run_path), thumbs)
+    _update_run_record(run_path, thumbnail_cache=str(Path(args.cache_root).resolve()))
+    _append_log(run_path, f"thumbs completed ({len(thumbs)} thumbnails) in {_duration(start):.2f}s")
+    print(f"[thumbs] generated {len(thumbs)} thumbnails")
+
+
+def _load_or_create_label_embeddings(
+    run_path: Path,
+    labels_list: Sequence[str],
+    model: object,
+    tokenizer: object,
+    device: str | None,
+    prompt: str,
+    model_name: str,
+    pretrained: str,
+) -> np.ndarray:
+    label_emb_path = _label_embeddings_file(run_path)
+    meta_path = _label_meta_file(run_path)
+    expected_meta = {
+        "labels_hash": _hash_labels(labels_list),
+        "prompt": prompt,
+        "model_name": model_name,
+        "pretrained": pretrained,
+    }
+    if label_emb_path.exists() and meta_path.exists():
+        cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if cached_meta == expected_meta:
+            return np.load(label_emb_path)
+
+    embeddings = clip_model.embed_labels(
+        labels=labels_list,
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
+        prompt=prompt,
+    )
+    np.save(label_emb_path, embeddings)
+    meta_path.write_text(json.dumps(expected_meta, indent=2), encoding="utf-8")
+    return embeddings
+
+
+def _hash_labels(labels_list: Sequence[str]) -> str:
+    joined = "\n".join(labels_list).encode("utf-8")
+    return hashlib.sha1(joined).hexdigest()
+
+
+def cmd_embed(args: argparse.Namespace) -> None:
+    run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    image_paths = _read_image_paths(run_path)
+    if not image_paths:
+        raise RuntimeError("No images available. Run 'scan' first.")
+
+    start = time.time()
+    model, preprocess, _, device = clip_model.load_clip(
+        model_name=args.model_name,
+        pretrained=args.pretrained,
+        device=args.device,
+    )
+    embeddings = clip_model.embed_images(
+        paths=image_paths,
+        model=model,
+        preprocess=preprocess,
+        batch_size=args.batch_size,
+        device=device,
+    )
+    np.save(_image_embeddings_file(run_path), embeddings)
+    _update_run_record(
+        run_path,
+        model_name=args.model_name,
+        pretrained=args.pretrained,
+        device=str(device),
+        image_embedding_shape=list(embeddings.shape),
+    )
+    _append_log(run_path, f"embed completed ({len(image_paths)} images) in {_duration(start):.2f}s")
+    print(f"[embed] saved embeddings shape={embeddings.shape}")
+
+
+def cmd_score(args: argparse.Namespace) -> None:
+    run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    image_paths = _read_image_paths(run_path)
+    if not image_paths:
+        raise RuntimeError("No images available. Run 'scan' first.")
+
+    embed_path = _image_embeddings_file(run_path)
+    if not embed_path.exists():
+        raise FileNotFoundError(f"No image embeddings found at {embed_path}. Run 'embed' first.")
+    image_embeddings = np.load(embed_path)
+
+    record = _load_run_record(run_path)
+    model_name = args.model_name or record.get("model_name") or "ViT-L-14"
+    pretrained = args.pretrained or record.get("pretrained") or "openai"
+
+    labels_list = labels_core.load_labels(args.labels)
+    if not labels_list:
+        raise RuntimeError(f"No labels loaded from {args.labels}")
+
+    start = time.time()
+    model, _, tokenizer, device = clip_model.load_clip(
+        model_name=model_name,
+        pretrained=pretrained,
+        device=args.device,
+    )
+
+    label_embeddings = _load_or_create_label_embeddings(
+        run_path=run_path,
+        labels_list=labels_list,
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
+        prompt=args.prompt,
+        model_name=model_name,
+        pretrained=pretrained,
+    )
+
+    results = score_core.score_labels(
+        img_emb=image_embeddings,
+        txt_emb=label_embeddings,
+        labels=labels_list,
+        topk=args.topk,
+        threshold=args.threshold,
+    )
+    serialized = []
+    for image_path, entry in zip(image_paths, results):
+        serialized.append(
+            {
+                "path": image_path,
+                "top1": entry["top1"],
+                "top1_score": float(entry["top1_score"]),
+                "topk_labels": entry["topk_labels"],
+                "topk_scores": [float(v) for v in entry["topk_scores"]],
+                "over_threshold": [
+                    {"label": label, "score": float(score)} for label, score in entry["over_threshold"]
+                ],
+            }
+        )
+    _write_json(_scores_file(run_path), serialized)
+    _update_run_record(
+        run_path,
+        labels_file=str(Path(args.labels).expanduser().resolve()),
+        topk=args.topk,
+        threshold=args.threshold,
+    )
+    _append_log(run_path, f"score completed ({len(serialized)} images) in {_duration(start):.2f}s")
+    print(f"[score] scored {len(serialized)} images using {len(labels_list)} labels")
+
+
+def cmd_medoids(args: argparse.Namespace) -> None:
+    run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    image_paths = _read_image_paths(run_path)
+    if not image_paths:
+        raise RuntimeError("No images available. Run 'scan' first.")
+    embed_path = _image_embeddings_file(run_path)
+    if not embed_path.exists():
+        raise FileNotFoundError(f"No image embeddings found at {embed_path}. Run 'embed' first.")
+
+    record = _load_run_record(run_path)
+    root_path = Path(record.get("root", args.root or ".")).expanduser().resolve()
+
+    start = time.time()
+    embeddings = np.load(embed_path)
+    folder_map: Dict[str, List[int]] = {}
+    for idx, path_str in enumerate(image_paths):
+        folder = _relative_path(Path(path_str).parent, root_path)
+        folder_map.setdefault(folder, []).append(idx)
+
+    medoid_info = medoid_core.compute_folder_medoids(folder_map, embeddings)
+    rows: List[Tuple[str, str, float]] = []
+    for folder, info in medoid_info.items():
+        medoid_idx = info["medoid_index"]
+        medoid_path = Path(image_paths[medoid_idx])
+        rel_path = _relative_path(medoid_path, root_path)
+        rows.append((folder, rel_path, info["cosine_to_centroid"]))
+
+    output_path = Path(args.output or _medoids_file(run_path))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["folder", "medoid_rel_path", "cosine_to_centroid"])
+        for folder, rel_path, cosine in sorted(rows):
+            writer.writerow([folder, rel_path, f"{cosine:.6f}"])
+
+    _update_run_record(run_path, medoids_file=str(output_path))
+    _append_log(run_path, f"medoids completed ({len(rows)} folders) in {_duration(start):.2f}s")
+    print(f"[medoids] wrote {len(rows)} rows to {output_path}")
+
+
+def _load_thumbnail_map(run_path: Path) -> Dict[str, Dict]:
+    thumbs_path = _thumbs_file(run_path)
+    if not thumbs_path.exists():
+        raise FileNotFoundError(f"No thumbnails found at {thumbs_path}. Run 'thumbs' first.")
+    thumbnails = _load_json(thumbs_path)
+    return {entry["path"]: entry for entry in thumbnails}
+
+
+def _load_scores_map(run_path: Path) -> Dict[str, Dict]:
+    scores_path = _scores_file(run_path)
+    if not scores_path.exists():
+        raise FileNotFoundError(f"No scores found at {scores_path}. Run 'score' first.")
+    entries = _load_json(scores_path)
+    return {entry["path"]: entry for entry in entries}
+
+
+def _load_approved_map(path: Path | None) -> Dict[str, List[str]]:
+    approved_map: Dict[str, List[str]] = {}
+    if path is None or not path.exists():
+        return approved_map
+    with path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            raw = (row.get("approved_labels") or "").split("|")
+            labels_list = [label.strip() for label in raw if label.strip()]
+            approved_map[row["path"]] = labels_list
+    return approved_map
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    image_paths = _read_image_paths(run_path)
+    if not image_paths:
+        raise RuntimeError("No images available. Run 'scan' first.")
+
+    record = _load_run_record(run_path)
+    root_path = Path(record.get("root", args.root or ".")).expanduser().resolve()
+    run_id = record.get("run_id", args.run_id)
+    model_name = record.get("model_name", "unknown")
+
+    thumbs_map = _load_thumbnail_map(run_path)
+    scores_map = _load_scores_map(run_path)
+
+    approved_csv = Path(args.approved) if args.approved else _approved_file(run_path)
+    approved_map = _load_approved_map(approved_csv if approved_csv.exists() else None)
+
+    start = time.time()
+    rows = []
+    for path_str in image_paths:
+        thumb_info = thumbs_map.get(path_str, {})
+        score_info = scores_map.get(path_str, {})
+
+        topk_labels = score_info.get("topk_labels", [])
+        topk_scores = score_info.get("topk_scores", [])
+        over_threshold = score_info.get("over_threshold", [])
+
+        approved_labels = approved_map.get(path_str, [])
+
+        rows.append(
+            {
+                "path": path_str,
+                "rel_path": _relative_path(Path(path_str), root_path),
+                "width": thumb_info.get("width", 0),
+                "height": thumb_info.get("height", 0),
+                "top1": score_info.get("top1", ""),
+                "top1_score": score_info.get("top1_score", 0.0),
+                "top5_labels": topk_labels,
+                "top5_scores": [f"{score:.6f}" for score in topk_scores],
+                "approved_labels": approved_labels,
+                "run_id": run_id,
+                "model_name": model_name,
+                "over_threshold": over_threshold,
+            }
+        )
+
+    export_path = Path(args.output or _export_file(run_path))
+    export_core.write_csv(rows, export_path)
+    _update_run_record(run_path, export_csv=str(export_path))
+    _append_log(run_path, f"export completed ({len(rows)} rows) in {_duration(start):.2f}s")
+    print(f"[export] wrote {export_path}")
+
+
+def cmd_sidecars(args: argparse.Namespace) -> None:
+    run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    source_csv = Path(args.source or _export_file(run_path))
+    if not source_csv.exists():
+        raise FileNotFoundError(f"Export CSV not found at {source_csv}. Run 'export' first.")
+
+    paths: List[str] = []
+    keywords: List[List[str]] = []
+
+    with source_csv.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        column = args.column
+        for row in reader:
+            labels_raw = row.get(column, "")
+            labels_list = [label.strip() for label in labels_raw.split("|") if label.strip()]
+            if not labels_list:
+                continue
+            paths.append(row["path"])
+            keywords.append(labels_list)
+
+    if not paths:
+        print("[sidecars] no labels to write; skipping")
+        return
+
+    start = time.time()
+    export_core.write_sidecars(paths, keywords, batch_size=args.batch_size)
+    _append_log(run_path, f"sidecars completed ({len(paths)} files) in {_duration(start):.2f}s")
+    print(f"[sidecars] wrote metadata for {len(paths)} files")
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _generate_run_id()
+    run_path = _ensure_run_path(args.run_dir, run_id, create=True)
+
+    print(f"[run] starting run_id={run_id}")
+    scan_args = argparse.Namespace(
+        root=args.root,
+        include=args.include,
+        max_images=args.max_images,
+        run_id=run_id,
+        run_dir=args.run_dir,
+    )
+    cmd_scan(scan_args)
+
+    thumbs_args = argparse.Namespace(
+        run_id=run_id,
+        run_dir=args.run_dir,
+        cache_root=args.cache_root,
+        max_edge=args.max_edge,
+        overwrite=args.overwrite_thumbs,
+    )
+    cmd_thumbs(thumbs_args)
+
+    embed_args = argparse.Namespace(
+        run_id=run_id,
+        run_dir=args.run_dir,
+        model_name=args.model_name,
+        pretrained=args.pretrained,
+        batch_size=args.batch_size,
+        device=args.device,
+    )
+    cmd_embed(embed_args)
+
+    score_args = argparse.Namespace(
+        run_id=run_id,
+        run_dir=args.run_dir,
+        labels=args.labels,
+        topk=args.topk,
+        threshold=args.threshold,
+        model_name=args.model_name,
+        pretrained=args.pretrained,
+        device=args.device,
+        prompt=args.prompt,
+    )
+    cmd_score(score_args)
+
+    medoid_args = argparse.Namespace(
+        run_id=run_id,
+        run_dir=args.run_dir,
+        output=None,
+        root=args.root,
+    )
+    cmd_medoids(medoid_args)
+
+    export_args = argparse.Namespace(
+        run_id=run_id,
+        run_dir=args.run_dir,
+        output=None,
+        approved=None,
+        root=args.root,
+    )
+    cmd_export(export_args)
+
+    if args.write_sidecars:
+        sidecar_args = argparse.Namespace(
+            run_id=run_id,
+            run_dir=args.run_dir,
+            source=None,
+            column=args.sidecar_column,
+            batch_size=args.batch_size_sidecar,
+        )
+        cmd_sidecars(sidecar_args)
+
+    _append_log(run_path, "run completed")
+    print(f"[run] completed run_id={run_id}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Photo Tagger CLI")
+    parser.add_argument("--run-dir", default="runs", help="Directory where run artifacts are stored")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    scan_parser = subparsers.add_parser("scan", help="Scan directories for images")
+    scan_parser.add_argument("--root", required=True, help="Root directory to scan")
+    scan_parser.add_argument("--include", nargs="*", help="Additional file extensions to include")
+    scan_parser.add_argument("--max-images", type=int, default=None, help="Limit the number of images scanned")
+    scan_parser.add_argument("--run-id", help="Existing run identifier (defaults to new timestamp)")
+    scan_parser.set_defaults(func=cmd_scan)
+
+    thumbs_parser = subparsers.add_parser("thumbs", help="Generate thumbnails for scanned images")
+    thumbs_parser.add_argument("--run-id", required=True, help="Run identifier")
+    thumbs_parser.add_argument("--cache-root", default=str(thumbs_core.DEFAULT_CACHE_ROOT), help="Thumbnail cache dir")
+    thumbs_parser.add_argument("--max-edge", type=int, default=thumbs_core.DEFAULT_MAX_EDGE, help="Max thumbnail edge")
+    thumbs_parser.add_argument("--overwrite", action="store_true", help="Regenerate thumbnails even if cached")
+    thumbs_parser.set_defaults(func=cmd_thumbs)
+
+    embed_parser = subparsers.add_parser("embed", help="Embed images using CLIP")
+    embed_parser.add_argument("--run-id", required=True, help="Run identifier")
+    embed_parser.add_argument("--model-name", default="ViT-L-14", help="CLIP model name")
+    embed_parser.add_argument("--pretrained", default="openai", help="CLIP pretrained weights identifier")
+    embed_parser.add_argument("--batch-size", type=int, default=64, help="Batch size for embedding")
+    embed_parser.add_argument("--device", default=None, help="Device override (cpu/cuda)")
+    embed_parser.set_defaults(func=cmd_embed)
+
+    score_parser = subparsers.add_parser("score", help="Score images against labels")
+    score_parser.add_argument("--run-id", required=True, help="Run identifier")
+    score_parser.add_argument("--labels", default="labels.txt", help="Path to labels file")
+    score_parser.add_argument("--topk", type=int, default=5, help="Top-k labels to keep")
+    score_parser.add_argument("--threshold", type=float, default=0.25, help="Score threshold for over-threshold list")
+    score_parser.add_argument("--model-name", default=None, help="Override CLIP model name")
+    score_parser.add_argument("--pretrained", default=None, help="Override pretrained weights identifier")
+    score_parser.add_argument("--device", default=None, help="Device override (cpu/cuda)")
+    score_parser.add_argument("--prompt", default="a photo of {}", help="Prompt template for label embeddings")
+    score_parser.set_defaults(func=cmd_score)
+
+    medoid_parser = subparsers.add_parser("medoids", help="Compute folder medoids")
+    medoid_parser.add_argument("--run-id", required=True, help="Run identifier")
+    medoid_parser.add_argument("--output", help="Optional output CSV path")
+    medoid_parser.add_argument("--root", help="Root directory (defaults to run metadata)")
+    medoid_parser.set_defaults(func=cmd_medoids)
+
+    export_parser = subparsers.add_parser("export", help="Export results to CSV")
+    export_parser.add_argument("--run-id", required=True, help="Run identifier")
+    export_parser.add_argument("--output", help="Path to export CSV (defaults to runs/<id>/results.csv)")
+    export_parser.add_argument("--approved", help="Optional approved labels CSV path")
+    export_parser.add_argument("--root", help="Root directory (defaults to run metadata)")
+    export_parser.set_defaults(func=cmd_export)
+
+    sidecar_parser = subparsers.add_parser("sidecars", help="Write .xmp sidecars using ExifTool")
+    sidecar_parser.add_argument("--run-id", required=True, help="Run identifier")
+    sidecar_parser.add_argument("--source", help="CSV source (defaults to export CSV)")
+    sidecar_parser.add_argument("--column", default="approved_labels", help="CSV column containing keywords")
+    sidecar_parser.add_argument("--batch-size", type=int, default=256, help="Batch size for ExifTool calls")
+    sidecar_parser.set_defaults(func=cmd_sidecars)
+
+    run_parser = subparsers.add_parser("run", help="Execute the full pipeline")
+    run_parser.add_argument("--root", required=True, help="Root directory to scan")
+    run_parser.add_argument("--include", nargs="*", help="Additional file extensions to include")
+    run_parser.add_argument("--max-images", type=int, default=None, help="Limit the number of images")
+    run_parser.add_argument("--cache-root", default=str(thumbs_core.DEFAULT_CACHE_ROOT), help="Thumbnail cache dir")
+    run_parser.add_argument("--max-edge", type=int, default=thumbs_core.DEFAULT_MAX_EDGE, help="Max thumbnail edge")
+    run_parser.add_argument("--overwrite-thumbs", action="store_true", help="Force regenerate thumbnails")
+    run_parser.add_argument("--model-name", default="ViT-L-14", help="CLIP model name")
+    run_parser.add_argument("--pretrained", default="openai", help="CLIP pretrained weights identifier")
+    run_parser.add_argument("--batch-size", type=int, default=64, help="Batch size for CLIP embedding")
+    run_parser.add_argument("--device", default=None, help="Device override (cpu/cuda)")
+    run_parser.add_argument("--labels", default="labels.txt", help="Labels file path")
+    run_parser.add_argument("--topk", type=int, default=5, help="Top-k labels to keep")
+    run_parser.add_argument("--threshold", type=float, default=0.25, help="Score threshold")
+    run_parser.add_argument("--prompt", default="a photo of {}", help="Prompt template for label embeddings")
+    run_parser.add_argument("--run-id", help="Optional existing run identifier")
+    run_parser.add_argument("--write-sidecars", action="store_true", help="Write sidecars after export")
+    run_parser.add_argument("--sidecar-column", default="approved_labels", help="Column to use for sidecar keywords")
+    run_parser.add_argument("--batch-size-sidecar", type=int, default=256, help="Sidecar batch size")
+    run_parser.set_defaults(func=cmd_run)
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        result = args.func(args)
+        if isinstance(result, str):
+            # some commands (scan/run) return run_id for convenience
+            print(result)
+    except Exception as exc:  # pragma: no cover - CLI surface
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

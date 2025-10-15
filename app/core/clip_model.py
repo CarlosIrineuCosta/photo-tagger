@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, Sequence, Tuple
+
+import numpy as np
+import open_clip
+import torch
+from PIL import Image
+
+
+def _chunked(sequence: Sequence[str] | Iterable[str], size: int):
+    batch: list[str] = []
+    for item in sequence:
+        batch.append(item)
+        if len(batch) == size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def _resolve_device(model: torch.nn.Module, device: str | torch.device | None) -> torch.device:
+    if device is None:
+        return next(model.parameters()).device
+    return torch.device(device)
+
+
+def load_clip(
+    model_name: str = "ViT-L-14",
+    pretrained: str = "openai",
+    device: str | None = None,
+) -> Tuple[torch.nn.Module, object, object, torch.device]:
+    """
+    Load a CLIP model and return ``(model, preprocess, tokenizer, device)``.
+    """
+    requested_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    model, preprocess, _ = open_clip.create_model_and_transforms(
+        model_name,
+        pretrained=pretrained,
+        device=requested_device,
+    )
+    model.eval()
+    tokenizer = open_clip.get_tokenizer(model_name)
+    return model, preprocess, tokenizer, torch.device(requested_device)
+
+
+def embed_images(
+    paths: Iterable[str],
+    model: torch.nn.Module,
+    preprocess,
+    batch_size: int = 64,
+    device: str | torch.device | None = None,
+) -> np.ndarray:
+    """
+    Embed ``paths`` using ``model`` and ``preprocess`` into a float32 array.
+    """
+    paths = list(paths)
+    if not paths:
+        output_dim = getattr(getattr(model, "visual", None), "output_dim", 0)
+        return np.zeros((0, int(output_dim)), dtype="float32")
+
+    device_resolved = _resolve_device(model, device)
+    model = model.to(device_resolved)
+    model.eval()
+
+    embeddings: list[np.ndarray] = []
+    autocast_enabled = device_resolved.type == "cuda"
+
+    with torch.no_grad():
+        for batch_paths in _chunked(paths, max(1, batch_size)):
+            images = []
+            for path in batch_paths:
+                with Image.open(Path(path)) as img:
+                    images.append(preprocess(img.convert("RGB")))
+            image_tensor = torch.stack(images).to(device_resolved)
+            with torch.cuda.amp.autocast(enabled=autocast_enabled):
+                feats = model.encode_image(image_tensor)
+            embeddings.append(feats.detach().cpu().float().numpy())
+
+    return np.concatenate(embeddings, axis=0)
+
+
+def embed_labels(
+    labels: Sequence[str],
+    model: torch.nn.Module,
+    tokenizer,
+    device: str | torch.device | None = None,
+    prompt: str = "a photo of {}",
+) -> np.ndarray:
+    """
+    Embed text ``labels`` with the supplied CLIP ``model`` and ``tokenizer``.
+    """
+    labels = [label.strip() for label in labels if label and label.strip()]
+    if not labels:
+        output_dim = getattr(model, "text_projection", None)
+        dim = int(getattr(output_dim, "shape", [0, 0])[1]) if output_dim is not None else 0
+        return np.zeros((0, dim), dtype="float32")
+
+    device_resolved = _resolve_device(model, device)
+    model = model.to(device_resolved)
+    model.eval()
+
+    prompts = [prompt.format(label) for label in labels]
+
+    with torch.no_grad():
+        tokens = tokenizer(prompts).to(device_resolved)
+        feats = model.encode_text(tokens)
+    return feats.detach().cpu().float().numpy()
+
+
+__all__ = ["load_clip", "embed_images", "embed_labels"]
