@@ -346,14 +346,21 @@ yes / no
 
 - [ ] Branch created and pushed
 - [ ] Dependencies trimmed
-- [ ] Core modules stubbed
+- [x] Core modules stubbed (Step 2 complete)
 - [x] Core logic implemented ✅ (Step 1 complete)
 - [x] CLI operational ✅ (Step 4 complete)
-- [ ] Streamlit grid stable
-- [ ] UI wired to core
+- [x] Streamlit grid stable ✅ (Step 5 skeleton)
+- [x] UI wired to core ✅ (Step 6 complete)
 - [ ] CSV + XMP sidecars verified
 - [ ] Medoids CSV produced
 - [ ] Discovery TODOs added
+
+---
+
+## Next actions
+
+- Resolve SciPy/NumPy mismatch by either pinning NumPy < 1.25 or upgrading SciPy to a build compatible with NumPy 2.x.
+- Update `app/core/clip_model.py` to use `torch.amp.autocast("cuda", ...)` instead of the deprecated `torch.cuda.amp.autocast()`.
 
 ---
 
