@@ -48,3 +48,6 @@ tasks_*.md
 logs/
 *.log
 tests/smoke/
+
+# Build artifacts
+photo_tagger.egg-info/

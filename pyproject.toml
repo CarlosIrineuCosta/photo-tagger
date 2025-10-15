@@ -35,7 +35,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["black", "isort", "ruff"]
+dev = ["black", "isort", "ruff", "pytest"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
 
 [build-system]
 requires = ["setuptools", "wheel"]

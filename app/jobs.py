@@ -41,6 +41,19 @@ class Pipeline:
         self._ck_tagger: Optional[CkTagger] = None
         self._person_detector: Optional[PersonDetector] = None
 
+    def close(self):
+        if self._clip_embedder is not None:
+            del self._clip_embedder
+            self._clip_embedder = None
+        if self._ck_tagger is not None:
+            del self._ck_tagger
+            self._ck_tagger = None
+        if self._person_detector is not None:
+            del self._person_detector
+            self._person_detector = None
+        import torch
+        torch.cuda.empty_cache()
+
     # ----------- helpers -----------
     def _load_index_df(self) -> pd.DataFrame:
         return pd.read_parquet(self.index_path)
@@ -311,7 +324,11 @@ class Pipeline:
             clusters_df = self._load_clusters_df()
         if tags_df is None:
             tags_df = pd.read_parquet(self.medoid_ai_path)
+        index_df = self._load_index_df()
         out = clusters_df.merge(tags_df, on=["cluster_id", "medoid_id"], how="left")
+        out = out.merge(index_df[["id", "path"]], left_on="medoid_id", right_on="id", how="left")
+        out = out.drop(columns=["id"])
+        out = out.rename(columns={"path": "filename"})
         out.to_csv(self.audit_path, index=False)
         return self.audit_path
 
