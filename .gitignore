@@ -51,3 +51,11 @@ tests/smoke/
 
 # Build artifacts
 photo_tagger.egg-info/
+
+# Caches and outputs
+thumb_cache/
+runs/
+
+# Local archives and samples
+archive/
+data/
