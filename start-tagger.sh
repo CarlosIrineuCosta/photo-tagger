@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
+export APP_ROOT="${ROOT_DIR}"
+
+API_HOST="${API_HOST:-127.0.0.1}"
+API_PORT="${API_PORT:-8010}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+
+ensure_port() {
+    local port="$1"
+    if lsof -Pi "tcp:${port}" -sTCP:LISTEN -t >/dev/null 2>&1; then
+        echo "[start-tagger] Port ${port} is in use. Attempting graceful shutdown of existing process..."
+        lsof -Pi "tcp:${port}" -sTCP:LISTEN -t | xargs -r kill -TERM
+        sleep 1
+        if lsof -Pi "tcp:${port}" -sTCP:LISTEN -t >/dev/null 2>&1; then
+            echo "[start-tagger] Port ${port} is still in use after SIGTERM. Sending SIGKILL."
+            lsof -Pi "tcp:${port}" -sTCP:LISTEN -t | xargs -r kill -KILL
+            sleep 1
+        fi
+        if lsof -Pi "tcp:${port}" -sTCP:LISTEN -t >/dev/null 2>&1; then
+            echo "[start-tagger] Unable to free port ${port}. Please choose a different port or stop the conflicting service." >&2
+            exit 1
+        fi
+    fi
+}
+
+ensure_port "${API_PORT}"
+ensure_port "${FRONTEND_PORT}"
+
+trap_handler() {
+    echo "\n[start-tagger] Shutting down..."
+    [[ -n "${API_PID:-}" ]] && kill "${API_PID}" 2>/dev/null || true
+    [[ -n "${WEB_PID:-}" ]] && kill "${WEB_PID}" 2>/dev/null || true
+    wait
+}
+
+trap trap_handler INT TERM EXIT
+
+echo "[start] API on http://${API_HOST}:${API_PORT}  ROOT=${ROOT_DIR}"
+uvicorn backend.api.index:app \
+    --host "${API_HOST}" \
+    --port "${API_PORT}" \
+    --reload \
+    --log-level info \
+    --app-dir "${ROOT_DIR}" \
+    --reload-dir backend \
+    --reload-dir app \
+    > backend.log 2>&1 &
+API_PID=$!
+
+export VITE_API_BASE="http://${API_HOST}:${API_PORT}"
+
+echo "[start] Waiting for backend..."
+for i in {1..50}; do
+    if curl -fsS "http://${API_HOST}:${API_PORT}/api/health" >/dev/null; then
+        echo "[start] Backend is up."
+        break
+    fi
+    sleep 0.2
+done
+echo "[start] PYTHONPATH=${PYTHONPATH}"
+echo "[start] Routes: $(curl -fsS "http://${API_HOST}:${API_PORT}/api/routes" || echo 'n/a')"
+
+echo "[frontend] Starting Vite dev server on http://127.0.0.1:${FRONTEND_PORT}"
+(
+    cd frontend
+    npm run dev -- --host 127.0.0.1 --port "${FRONTEND_PORT}"
+) &
+WEB_PID=$!
+
+wait "$API_PID" "$WEB_PID"

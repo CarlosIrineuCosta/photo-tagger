@@ -62,9 +62,9 @@ Deliverable → fully navigable React frontend using mock JSON data.
 
 | #     | Task                    | Description                                                                      | Owner | Status |
 | ----- | ----------------------- | -------------------------------------------------------------------------------- | ----- | ------ |
-| ✅ 12 | **Create FastAPI app**  | Scaffold under `/backend/api/` following `backend_interface_spec.md`.            | Codex | ☐      |
-| ✅ 13 | **Integrate endpoints** | Implement `/api/gallery`, `/api/tag`, `/api/export`, `/api/config`.              | Codex | ☐      |
-| ✅ 14 | **Connect frontend**    | Replace mock fetches with live API requests (`fetch` via `frontend/lib/api.ts`). | Codex | ☐      |
+| ✅ 12 | **Create FastAPI app**  | Scaffold under `/backend/api/` following `backend_interface_spec.md`.            | Codex | ✅ (2025-10-17) |
+| ✅ 13 | **Integrate endpoints** | Implement `/api/gallery`, `/api/tag`, `/api/export`, `/api/config`.              | Codex | ✅ (2025-10-17) |
+| ✅ 14 | **Connect frontend**    | Replace mock fetches with live API requests (`fetch` via `frontend/lib/api.ts`). | Codex | ✅ (2025-10-17) |
 | ✅ 15 | **Testing & QA**        | Validate image paths, labels, save/export flow.                                  | Codex | ☐      |
 | ✅ 16 | **Remove Streamlit**    | Delete `app/ui/streamlit_app.py` after full replacement verified.                | Codex | ☐      |
 | ✅ 17 | **Dockerfile update**   | Combine backend + frontend in production image (`npm build` + `uvicorn`).        | Codex | ☐      |
@@ -122,20 +122,23 @@ photo-tagger/
 | Milestone | Definition of Done                              | ETA   | Status |
 | --------- | ----------------------------------------------- | ----- | ------ |
 | **M1**    | React + Tailwind + Shadcn scaffold runs locally | Day 1 | ✅ (2025-10-17) |
-| **M2**    | Components migrated, style parity with mock     | Day 2 | ☐      |
-| **M3**    | Routing & mock API connected                    | Day 3 | ☐      |
+| **M2**    | Components migrated, style parity with mock     | Day 2 | ✅ (2025-10-17) |
+| **M3**    | Routing & mock API connected                    | Day 3 | ✅ (2025-10-17) |
 | **M4**    | Live FastAPI integration                        | Day 5 | ☐      |
 | **M5**    | Streamlit fully removed                         | Day 6 | ☐      |
 | **M6**    | Visual + functional QA                          | Day 7 | ☐      |
 
 ---
 
-## 🧩 Next Actions
+## NEXT STEP – Phase 2 Notes (remove after sync)
 
-1. Codex → start **Phase 1 (Tasks 1–11)** immediately.
-2. Upon completion, notify and request validation screenshots.
-3. After approval, begin **Phase 2 (Tasks 12–17)** using API stubs from `backend_interface_spec.md`.
-4. Remove all Streamlit references only after confirmation.
+- **Process images UX**: Button now shells out to the CLI pipeline and surfaces success/failure in the status strip. It stays red while no CLIP scores are present. Next step is to run the pipeline asynchronously (background task/worker) so the API thread isn’t blocked during large batches.
+- **Gallery filters**: Defaults now show all states. Confirm behavior once real scoring runs feed saved state so “Selected” vs “Saved” badges remain intuitive.
+- **Config management**: UI persists `root` and `max_images`; queue follow-up to surface `labels_file`, `run_dir`, etc., and guard against invalid paths.
+- **Scoring data**: `/api/gallery` now hydrates label suggestions from the latest `scores.json`. If no scores are found the API flags the fallback state and the UI keeps the Process button red.
+- **Cache control**: No UI yet for clearing thumbnails or state; note the need for operator tools (clear thumb cache, reload embeddings) before GA.
+- **Label pack**: Review `photo_tagger_starter_label_pack.md` and expand label sources after CLIP scoring integration; track i18n-friendly status strings in one place.
+- **Pipeline trigger**: `/api/process` now forces `cwd=repo root` and prepends the repo to `PYTHONPATH` before launching `python -m app.cli.tagger`. With `start-tagger.sh` the API prints routes, PYTHONPATH, and an explicit error if the CLI fails (e.g., missing labels). Confirm the status strip shows “Pipeline completed (run_id=…)” to know tags are fresh.
 
 ---
 

@@ -16,21 +16,27 @@ type CommandBarProps = {
   onFiltersChange: (next: Record<FilterKey, boolean>) => void
   pageSize?: number
   onPageSizeChange?: (size: number) => void
+  onProcessImages?: () => void
   onExport?: (mode: "csv" | "sidecars" | "both") => void
   onToggleWorkflow?: () => void
   onSaveApproved?: () => void
+  processing?: boolean
+  needsProcessing?: boolean
 }
 
-const PAGE_SIZES = [24, 48, 96]
+const PAGE_SIZES = [25, 50, 100]
 
 export function CommandBar({
   filters,
   onFiltersChange,
   onPageSizeChange,
+  onProcessImages,
   onExport,
   pageSize = PAGE_SIZES[0],
   onToggleWorkflow,
   onSaveApproved,
+  processing = false,
+  needsProcessing = false,
 }: CommandBarProps) {
   const handleFilterToggle = (key: FilterKey) => (pressed: boolean) => {
     onFiltersChange({ ...filters, [key]: pressed })
@@ -38,7 +44,14 @@ export function CommandBar({
 
   return (
     <section className="sticky top-14 z-40 flex h-16 items-center gap-2.5 border-b border-line/60 bg-panel px-5">
-      <Button size="sm">Process images</Button>
+      <Button
+        size="sm"
+        onClick={onProcessImages}
+        disabled={processing}
+        variant={needsProcessing ? "destructive" : "default"}
+      >
+        {processing ? "Processing…" : "Process images"}
+      </Button>
       <Separator orientation="vertical" className="h-8 bg-line" />
       <Toggle
         pressed={filters.medoidsOnly}
@@ -69,7 +82,7 @@ export function CommandBar({
         Center-crop
       </Toggle>
       <Separator orientation="vertical" className="h-8 bg-line" />
-      <Button size="sm" variant="outline" onClick={onSaveApproved}>
+      <Button size="sm" variant="outline" onClick={onSaveApproved} disabled={processing}>
         Save approved
       </Button>
       <Separator orientation="vertical" className="ml-1 h-8 bg-line" />
