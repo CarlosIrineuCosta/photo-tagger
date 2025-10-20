@@ -132,6 +132,9 @@ photo-tagger/
 
 ## NEXT STEP – Phase 2 Notes (remove after sync)
 
+- **Legacy Gradio cleanup**: `app/main.py` still mounts Gradio; remove the entrypoint and drop the dependency once the React/FASTAPI flow is confirmed stable.
+- **Optional model scope**: OCR/BLIP extras are paused; keep installs limited to `raw` and `people` until we re-open the AI captioning track.
+- **Pinned Torch stack**: Standardize on `torch==2.2.2` / `torchvision==0.17.2` to avoid hour-long resolver backtracks during environment bootstrap.
 - **Process images UX**: Button now shells out to the CLI pipeline and surfaces success/failure in the status strip. It stays red while no CLIP scores are present. Next step is to run the pipeline asynchronously (background task/worker) so the API thread isn’t blocked during large batches.
 - **Gallery filters**: Defaults now show all states. Confirm behavior once real scoring runs feed saved state so “Selected” vs “Saved” badges remain intuitive.
 - **Config management**: UI persists `root` and `max_images`; queue follow-up to surface `labels_file`, `run_dir`, etc., and guard against invalid paths.
@@ -139,6 +142,12 @@ photo-tagger/
 - **Cache control**: No UI yet for clearing thumbnails or state; note the need for operator tools (clear thumb cache, reload embeddings) before GA.
 - **Label pack**: Review `photo_tagger_starter_label_pack.md` and expand label sources after CLIP scoring integration; track i18n-friendly status strings in one place.
 - **Pipeline trigger**: `/api/process` now forces `cwd=repo root` and prepends the repo to `PYTHONPATH` before launching `python -m app.cli.tagger`. With `start-tagger.sh` the API prints routes, PYTHONPATH, and an explicit error if the CLI fails (e.g., missing labels). Confirm the status strip shows “Pipeline completed (run_id=…)” to know tags are fresh.
+
+---
+
+## Next Step
+
+Once Phase 2 completes, refresh `initial_setup.md` to capture the Docker and QA changes.
 
 ---
 

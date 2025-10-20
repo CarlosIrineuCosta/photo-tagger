@@ -3,46 +3,49 @@ name = "photo-tagger"
 version = "0.1.0"
 description = "RAW photo tagging pipeline (scan, cluster, CK/AI tagging, XMP write)."
 authors = [{name = "Carlos"}]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
-    "accelerate",
-    "duckdb",
-    "exifread",
-    "fastapi",
-    "gradio",
-    "hdbscan",
-    "joblib",
-    "numba",
-    "numpy",
+    "exifread>=3,<4",
+    "fastapi>=0.109,<0.121",
+    "hdbscan>=0.8.33,<0.10",
+    "numpy>=1.26,<2.2",
     "open-clip-torch==2.24.0",
-    "openai",
-    "pandas",
-    "piexif",
-    "pillow",
-    "pydantic",
-    "pyarrow",
-    "pytesseract",
-    "pyyaml",
-    "rawpy",
-    "scikit-learn",
-    "scipy",
-    "tqdm",
-    "transformers",
-    "safetensors",
-    "torch",
-    "torchvision",
-    "uvicorn[standard]"
+    "pandas>=2.1,<2.4",
+    "pillow>=10,<12",
+    "pydantic>=2.6,<2.13",
+    "pyarrow>=14,<19",
+    "pyyaml>=6,<7",
+    "scikit-learn>=1.4,<1.8",
+    "scipy>=1.11,<1.16",
+    "torch==2.2.2",
+    "tqdm>=4.66,<5",
+    "uvicorn[standard]>=0.24,<0.39"
 ]
 
 [project.optional-dependencies]
-dev = ["black", "isort", "ruff", "pytest"]
+raw = ["rawpy>=0.24,<0.26"]
+people = ["torchvision==0.17.2"]
+# ocr = ["pytesseract>=0.3.10,<0.4"]
+# ai_caption = [
+#     "transformers>=4.38,<4.58",
+#     "safetensors>=0.4,<0.7",
+# ]
+vision = ["openai>=1.3,<2.0"]
+ui-gradio = ["gradio>=3.50,<5.0"]
+ui-streamlit = ["streamlit>=1.24,<1.42"]
+dev = [
+    "black>=24.3,<25",
+    "isort>=5.12,<6",
+    "ruff>=0.6,<0.7",
+    "pytest>=7.4,<9",
+]
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
