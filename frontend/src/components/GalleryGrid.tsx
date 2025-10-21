@@ -1,26 +1,14 @@
 import { useCallback } from "react"
 
+import { AspectRatio } from "@/components/ui/aspect-ratio"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { AspectRatio } from "@/components/ui/aspect-ratio"
 import { Toggle } from "@/components/ui/toggle"
 import { cn } from "@/lib/utils"
-
-export type GalleryLabel = {
-  name: string
-  score: number
-}
-
-export type GalleryItem = {
-  id: string
-  filename: string
-  thumb: string
-  medoid?: boolean
-  labels: GalleryLabel[]
-}
+import type { ApiGalleryItem, ApiLabel } from "@/lib/api"
 
 type GalleryGridProps = {
-  items: GalleryItem[]
+  items: ApiGalleryItem[]
   cropMode?: boolean
   className?: string
   itemState: Record<
@@ -30,7 +18,7 @@ type GalleryGridProps = {
       saved: boolean
     }
   >
-  onToggleLabel: (itemId: string, label: GalleryLabel) => void
+  onToggleLabel: (itemPath: string, label: ApiLabel) => void
 }
 
 export function GalleryGrid({ items, cropMode = false, className, itemState, onToggleLabel }: GalleryGridProps) {
@@ -41,8 +29,8 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
     )
 
   const isLabelApproved = useCallback(
-    (itemId: string, labelName: string) => {
-      const selected = itemState[itemId]?.selected ?? []
+    (itemPath: string, labelName: string) => {
+      const selected = itemState[itemPath]?.selected ?? []
       return selected.includes(labelName)
     },
     [itemState]
@@ -52,7 +40,7 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
     <section className={cn("rounded-2xl border border-line/60 bg-panel p-3.5", className)}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
         {items.map((item) => (
-            <Card key={item.id} className="overflow-hidden border-line/60 bg-panel-2">
+          <Card key={item.id ?? item.path} className="overflow-hidden border-line/60 bg-panel-2">
             <div className="relative">
               <AspectRatio ratio={1}>
                 <img
@@ -75,7 +63,7 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
                   </Badge>
                 )}
                 {(() => {
-                  const state = itemState[item.id]
+                  const state = itemState[item.path]
                   if (!state || state.selected.length === 0) return null
                   if (state.saved) {
                     return (
@@ -94,26 +82,26 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
             </div>
             <CardContent className="flex flex-1 flex-col gap-2.5 p-3">
               <div className="truncate text-xs text-muted-foreground">{item.filename}</div>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  {item.labels.slice(0, 6).map((label) => {
-                    const pressed = isLabelApproved(item.id, label.name)
-                    return (
-                      <Toggle
-                        key={label.name}
-                        pressed={pressed}
-                        onPressedChange={() => onToggleLabel(item.id, label)}
-                        className={cn(
-                          "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors",
-                          "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
-                        )}
-                      >
-                        <span>{label.name}</span>
-                      </Toggle>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {item.labels.slice(0, 6).map((label) => {
+                  const pressed = isLabelApproved(item.path, label.name)
+                  return (
+                    <Toggle
+                      key={label.name}
+                      pressed={pressed}
+                      onPressedChange={() => onToggleLabel(item.path, label)}
+                      className={cn(
+                        "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors",
+                        "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
+                      )}
+                    >
+                      <span>{label.name}</span>
+                    </Toggle>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </section>

@@ -4,14 +4,15 @@
 The pipeline lives in `app/` with the following modular structure:
 - `app/core/` — Core processing modules (clip_model.py, export.py, labels.py, medoid.py, scan.py, score.py, thumbs.py)
 - `app/cli/` — Command-line interface (tagger.py with all CLI subcommands)
-- `app/ui/` — Streamlit web interface (streamlit_app.py)
-- `app/util/` — Utility modules (monitor_vram.py)
+- `app/util/` — Utility helpers (monitor_vram.py, review_table.py)
+- `backend/api/` — FastAPI bridge used by the React frontend
+- `frontend/` — Vite + React + Shadcn UI
 
 Configuration is managed via `config.yaml` in the project root. Run artifacts are stored in `runs/` with timestamped directories. Thumbnail cache lives in `thumb_cache/`.
 
 ## Build, Test, and Development Commands
 - `python -m pip install -e .[dev]` — install the package and tooling in an activated Python 3.11 environment.
-- `streamlit run app/ui/streamlit_app.py` — run the Streamlit UI for interactive processing and review.
+- `./start-tagger.sh` — launch FastAPI + Vite for the interactive React UI.
 - `python -m app.cli.tagger run --root /path/to/photos` — execute the complete pipeline via CLI.
 - `pytest` — execute the unit suite configured in `pyproject.toml`.
 

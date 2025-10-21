@@ -87,9 +87,13 @@ def embed_labels(
     tokenizer,
     device: str | torch.device | None = None,
     prompt: str = "a photo of {}",
+    prompts_per_label: dict[str, Sequence[str]] | None = None,
 ) -> np.ndarray:
     """
     Embed text ``labels`` with the supplied CLIP ``model`` and ``tokenizer``.
+
+    When ``prompts_per_label`` is provided, each label may expand to multiple
+    prompt variants and the resulting embeddings are averaged per label.
     """
     labels = [label.strip() for label in labels if label and label.strip()]
     if not labels:
@@ -100,6 +104,30 @@ def embed_labels(
     device_resolved = _resolve_device(model, device)
     model = model.to(device_resolved)
     model.eval()
+
+    if prompts_per_label:
+        prompt_variants: list[str] = []
+        counts: list[int] = []
+        for label in labels:
+            variants = [variant for variant in prompts_per_label.get(label, []) if isinstance(variant, str) and variant]
+            if not variants:
+                variants = [prompt.format(label)]
+            prompt_variants.extend(variants)
+            counts.append(len(variants))
+        if not prompt_variants:
+            output_dim = getattr(model, "text_projection", None)
+            dim = int(getattr(output_dim, "shape", [0, 0])[1]) if output_dim is not None else 0
+            return np.zeros((0, dim), dtype="float32")
+        with torch.no_grad():
+            tokens = tokenizer(prompt_variants).to(device_resolved)
+            feats = model.encode_text(tokens).detach().cpu().float().numpy()
+        aggregated: list[np.ndarray] = []
+        offset = 0
+        for count in counts:
+            segment = feats[offset : offset + count]
+            offset += count
+            aggregated.append(segment.mean(axis=0))
+        return np.stack(aggregated, axis=0)
 
     prompts = [prompt.format(label) for label in labels]
 

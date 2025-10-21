@@ -18,6 +18,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
 from app.core import export as export_core
+from app.core import label_pack as label_pack_core
 from app.core import labels as labels_core
 from app.core import scan as scan_core
 from app.core import thumbs as thumbs_core
@@ -37,6 +38,7 @@ STATE_LOCK = threading.Lock()
 STATE_DATA: Dict[str, dict] | None = None
 LABEL_CACHE: List[str] | None = None
 LABEL_SOURCE: Path | None = None
+LABEL_PACK: label_pack_core.LabelPack | None = None
 THUMB_CACHE: Dict[str, dict] = {}
 
 
@@ -86,12 +88,19 @@ def load_config() -> dict:
     labels_value = data.get("labels_file")
     root_path = Path(data.get("root", ".")).expanduser()
     fallback_labels = root_path / "labels.txt"
+    repo_labels_dir = Path("labels")
     if not labels_value:
-        data["labels_file"] = str(fallback_labels)
+        if repo_labels_dir.exists():
+            data["labels_file"] = str(repo_labels_dir)
+        else:
+            data["labels_file"] = str(fallback_labels)
     else:
         labels_path = Path(labels_value).expanduser()
-        if not labels_path.exists() and fallback_labels.exists():
-            data["labels_file"] = str(fallback_labels)
+        if not labels_path.exists():
+            if repo_labels_dir.exists():
+                data["labels_file"] = str(repo_labels_dir)
+            elif fallback_labels.exists():
+                data["labels_file"] = str(fallback_labels)
     return data
 
 
@@ -133,15 +142,23 @@ def save_state(cfg: dict, state: Dict[str, dict]) -> None:
 
 
 def get_label_pool(cfg: dict) -> List[str]:
-    global LABEL_CACHE, LABEL_SOURCE
+    global LABEL_CACHE, LABEL_SOURCE, LABEL_PACK
     label_path = Path(cfg.get("labels_file", "")).expanduser()
     if LABEL_CACHE is not None and LABEL_SOURCE == label_path:
         return LABEL_CACHE
+
+    LABEL_CACHE = None
+    LABEL_PACK = None
     if label_path.exists():
         try:
-            LABEL_CACHE = labels_core.load_labels(label_path)
+            if label_path.is_dir():
+                LABEL_PACK = label_pack_core.load_label_pack(label_path)
+                LABEL_CACHE = LABEL_PACK.labels
+            else:
+                LABEL_CACHE = labels_core.load_labels(label_path)
         except Exception:
             LABEL_CACHE = None
+            LABEL_PACK = None
     if LABEL_CACHE is None:
         LABEL_CACHE = [
             "portrait",
@@ -475,11 +492,12 @@ def update_config(update: ConfigUpdate):
         data[key] = value
     save_config(data)
     # reset caches
-    global STATE_DATA, LABEL_CACHE, LABEL_SOURCE
+    global STATE_DATA, LABEL_CACHE, LABEL_SOURCE, LABEL_PACK
     with STATE_LOCK:
         STATE_DATA = None
     LABEL_CACHE = None
     LABEL_SOURCE = None
+    LABEL_PACK = None
     return {"status": "updated", "config": data}
 
 
@@ -550,6 +568,4 @@ def process_images():
             STATE_DATA = None
         THUMB_CACHE.clear()
 
-    output_lines = (result.stdout or "").strip().splitlines()
-    reported_run_id = output_lines[-1] if output_lines else run_id
-    return ProcessResponse(status="ok", run_id=reported_run_id, detail=(result.stdout or "").strip())
+    return ProcessResponse(status="ok", run_id=run_id, detail=(result.stdout or "").strip())

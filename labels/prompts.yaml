@@ -1,0 +1,16 @@
+# Multiple templates per tier; we average text embeddings of each template.
+
+objects:
+  - "a photo of a {}"
+  - "an image of {}"
+  - "{}"
+
+scenes:
+  - "a photo taken in a {}"
+  - "a {} scene"
+  - "{} environment"
+
+styles:
+  - "{} photography"
+  - "a photograph in the style of {}"
+  - "{}"

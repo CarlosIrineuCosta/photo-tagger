@@ -1,0 +1,12 @@
+# Tier defaults and optional per-label overrides
+
+tiers:
+  objects: 0.23
+  scenes: 0.24
+  styles: 0.20
+
+labels:
+  portrait: 0.18
+  restaurant: 0.23
+  tanks: 0.25
+  street photography: 0.19

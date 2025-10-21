@@ -18,11 +18,14 @@
 | **`thumbs.py`**     | Creates or caches thumbnails (used in Streamlit/HTML gallery).                                         |
 | **`export.py`**     | Handles saving approved tags, exporting to CSV and sidecar files.                                      |
 
-### UI Layer: `app/ui/`
+### UI Layer: `frontend/`
 
-| File                   | Functionality Summary                                                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **`streamlit_app.py`** | Current Streamlit-based interface, calling modules under `app/core`. This will be deprecated and replaced by the new Shadcn/React UI. |
+| File/Folder            | Functionality Summary                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `components/`          | Shadcn primitives (Topbar, CommandBar, GalleryGrid, WorkflowSidebar, StatusStrip).                                        |
+| `pages/`               | Route-level views for Gallery, Config, Help, Login.                                                                      |
+| `lib/api.ts`           | Fetch helpers that talk to FastAPI (`/api/gallery`, `/api/process`, etc.).                                               |
+| `layout/AppLayout.tsx` | Shared layout shell (top bar + status strip).                                                                            |
 
 ---
 
@@ -49,7 +52,7 @@ If you use a `pyenv.cfg`, it’s purely metadata (safe, not sensitive).
 | **Label management**  | `labels.py`            | Loads label text files and provides lookup/filter functions.          |
 | **Medoid selection**  | `medoid.py`            | Clustering and representative image selection.                        |
 | **Export subsystem**  | `export.py`            | Outputs CSV + sidecar data for approved tags.                         |
-| **Legacy UI bridge**  | `streamlit_app.py`     | (to be replaced) currently binds core logic to a Streamlit interface. |
+| **Legacy UI bridge**  | *(removed)*            | The React frontend now consumes FastAPI directly; Streamlit/Gradio have been retired.                       |
 
 ---
 
@@ -73,7 +76,7 @@ Add this section at the top of your `UI-Refactor.md` file (I’ll include it whe
 > - For backend mapping: see `project_map.md`
 > - For data flow & API routes: see `backend_interface_spec.md`
 > - Codex must keep all `app/core/*.py` logic unchanged.
-> - The only deprecated file is `app/ui/streamlit_app.py` (replace by `/frontend/` React app).
+> - The modern UI lives under `/frontend/`; FastAPI under `backend/api` serves the data contract.
 ```
 
 ---

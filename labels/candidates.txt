@@ -1,0 +1,78 @@
+warfare
+battle
+armored vehicle
+ruin
+rubble
+missile
+drone
+convoy
+checkpoint
+barbed wire
+sandbag
+trench
+smokestack
+factory
+control room
+server rack
+console
+circuit board
+neon sign
+billboard
+skyscraper
+overpass
+toll booth
+roundabout
+crosswalk
+traffic light
+streetlight
+sidewalk
+fountain
+statue
+chapel
+cathedral
+cemetery
+harbor crane
+lifeguard tower
+surfboard
+pier
+
+portrait lighting
+rembrandt lighting
+butterfly lighting
+split lighting
+backlight
+rim light
+
+soccer
+basketball
+tennis
+swimming
+
+wheelchair
+stroller
+shopping cart
+
+medal
+trophy
+certificate
+
+police
+firefighter
+paramedic
+protest
+crowd
+stage light
+spotlight
+
+microchip
+robot arm
+battery
+solar panel
+wind turbine
+
+bread
+pizza
+pasta
+salad
+sushi
+steak

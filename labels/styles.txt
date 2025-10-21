@@ -1,0 +1,32 @@
+portrait
+headshot
+candid
+street photography
+travel photography
+nude photography
+product photography
+photojournalism
+documentary
+fine art
+studio shot
+editorial
+fashion photography
+
+landscape photography
+architecture photography
+macro photography
+
+black and white
+color study
+high contrast
+low key
+high key
+minimalism
+abstract
+
+long exposure
+motion blur
+bokeh
+film look
+vintage look
+polaroid look

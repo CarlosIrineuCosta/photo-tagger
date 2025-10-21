@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app.ui import format_review_rows
+from app.util.review_table import format_review_rows
 
 
 def test_format_review_rows_lists():

@@ -4,12 +4,46 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+PYTHON_BIN="${PYTHON_BIN:-python3.11}"
+VENV_DIR="${ROOT_DIR}/.venv"
+
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 export APP_ROOT="${ROOT_DIR}"
 
 API_HOST="${API_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-8010}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+
+bootstrap_python() {
+    if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
+        echo "[env] Creating virtual environment at ${VENV_DIR}"
+        "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+    fi
+
+    # shellcheck disable=SC1090
+    source "${VENV_DIR}/bin/activate"
+
+    if ! python -m pip show photo-tagger >/dev/null 2>&1; then
+        echo "[env] Installing project dependencies (editable + dev extras)..."
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[dev]"
+    elif ! python -m pip show uvicorn >/dev/null 2>&1; then
+        echo "[env] Installing uvicorn dependency..."
+        python -m pip install uvicorn[standard]
+    fi
+}
+
+bootstrap_frontend() {
+    (
+        cd frontend
+        npm config set audit false >/dev/null 2>&1 || true
+        local lockfile="package-lock.json"
+        if [[ ! -d node_modules ]] || [[ -f "${lockfile}" && "${lockfile}" -nt node_modules ]]; then
+            echo "[env] Installing frontend dependencies..."
+            npm install --no-progress
+        fi
+    )
+}
 
 ensure_port() {
     local port="$1"
@@ -31,6 +65,9 @@ ensure_port() {
 
 ensure_port "${API_PORT}"
 ensure_port "${FRONTEND_PORT}"
+
+bootstrap_python
+bootstrap_frontend
 
 trap_handler() {
     echo "\n[start-tagger] Shutting down..."

@@ -1,6 +1,6 @@
 # Initial Setup
 
-This guide replaces the legacy Streamlit + Gradio instructions with the current React frontend and FastAPI backend workflow. Keep the documents in `docs/project_map.md` and `docs/ui-refactor.md` open while onboarding—they stay in sync with day-to-day development and supersede any previous setup checklists.
+This guide replaces the legacy Streamlit + Gradio instructions with the current React frontend and FastAPI backend workflow. Keep `docs/project_map.md` and `docs/ongoing.md` handy while onboarding—they stay in sync with day-to-day development and supersede any previous setup checklists. (The historical plan lives in `docs/archive/ui-refactor.md`.)
 
 ---
 
@@ -154,7 +154,7 @@ CI expects all of the above to pass before merging. Run them locally to avoid su
 ## 9. Reference Materials
 
 - `docs/project_map.md` — module-by-module overview of the backend and legacy touch points.
-- `docs/ui-refactor.md` — canonical source for the React + FastAPI integration plan and outstanding tasks.
+- `docs/ongoing.md` — current backlog and follow-up tasks for the React + FastAPI stack (the original plan is archived under `docs/archive/ui-refactor.md`).
 - `Photo-Tagger Documentation.md` — broader context, decisions, and terminology.
 
 Keep `initial_setup.md` up to date whenever the UI refactor phases advance (e.g., when Streamlit artifacts are removed or new API routes land). Once Phase 2 completes, refresh this doc to capture the Docker and QA changes.

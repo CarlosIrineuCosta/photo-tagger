@@ -1,0 +1,11 @@
+# Groups of near-synonyms. Keep only the highest-scoring label in each group.
+
+equivalences:
+  - [bar, pub, restaurant, café]
+  - [portrait, headshot, face]
+  - [street, road, alley]
+  - [studio shot, editorial, fashion photography]
+  - [black and white, high contrast]
+  - [tanks, tank, armored vehicle]
+  - [monitor, screen, television]
+  - [cell phone, cellphone, phone]

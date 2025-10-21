@@ -1,6 +1,6 @@
 # app/core/score.py
 from __future__ import annotations
-from typing import List, Dict, Tuple
+from typing import Dict, List, Mapping, Tuple
 import numpy as np
 
 def _cosine_sim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -15,9 +15,11 @@ def score_labels(
     labels: List[str],
     topk: int = 5,
     threshold: float = 0.25,
+    label_thresholds: Mapping[str, float] | None = None,
 ) -> List[Dict]:
     """
-    Returns one dict per image:
+    Returns one dict per image. When ``label_thresholds`` is provided, each label
+    uses its own minimum similarity score for the ``over_threshold`` list.
       {
         'top1': str,
         'top1_score': float,
@@ -39,7 +41,14 @@ def score_labels(
         top_labels = [labels[j] for j in top_idx]
         top_scores = [float(row[j]) for j in top_idx]
         t1_idx = top_idx[0]
-        over = [(labels[j], float(row[j])) for j in np.where(row >= threshold)[0]]
+        if label_thresholds:
+            over: List[Tuple[str, float]] = []
+            for idx, label in enumerate(labels):
+                limit = label_thresholds.get(label, threshold)
+                if row[idx] >= limit:
+                    over.append((label, float(row[idx])))
+        else:
+            over = [(labels[j], float(row[j])) for j in np.where(row >= threshold)[0]]
 
         out.append({
             "top1": labels[t1_idx],

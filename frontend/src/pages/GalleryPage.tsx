@@ -146,7 +146,7 @@ export function GalleryPage() {
         return false
       }
       if (filters.unapprovedOnly) {
-        if (state.saved) {
+        if (state.saved || state.selected.length > 0) {
           return false
         }
       }
@@ -239,8 +239,9 @@ export function GalleryPage() {
     pushStatus({ message: "Processing images…", level: "info" })
     try {
       const response = await processImages()
+      const runLabel = response.run_id ? `run ${response.run_id}` : "run"
       pushStatus({
-        message: `Pipeline completed (${response.run_id ?? "run"})`,
+        message: `All images processed (${runLabel})`,
         level: "success",
       })
       await loadGallery()

@@ -21,8 +21,8 @@ sudo apt install exiftool
 
 ### Running the Application
 ```bash
-# Start the web UI (FastAPI + Gradio)
-uvicorn app.main:app --host 0.0.0.0 --port 7860
+# Start the web UI (FastAPI + React)
+./start-tagger.sh  # FastAPI on 8010, Vite on 5173
 
 # Batch processing (medoid tagging only, no XMP writes)
 python scripts/medoid_batch.py --openai  # optional --openai for Vision API
@@ -65,7 +65,7 @@ The application implements a 6-step photo processing pipeline:
 6. **XMP Writing** (`app/write_xmp.py`) - Keyword export via exiftool sidecars
 
 ### Core Components
-- **FastAPI + Gradio UI** (`app/main.py`, `app/ui.py`) - Web interface for pipeline control
+- **FastAPI + React UI** (`backend/api`, `frontend/`) - Web interface for pipeline control
 - **Pipeline Orchestration** (`app/jobs.py`) - Coordinates all processing steps
 - **Configuration System** (`app/config.py`) - YAML-based configuration management
 - **People Detection** (`app/person.py`) - Privacy-aware people/nude detection

@@ -1,19 +1,24 @@
-const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8010" : ""
-const API_BASE = ((import.meta.env.VITE_API_BASE as string | undefined) ?? DEFAULT_API_BASE).replace(/\/$/, "")
+const explicitBaseEnv = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
+const EXPLICIT_API_BASE = explicitBaseEnv ? explicitBaseEnv.replace(/\/$/, "") : null
 
-function buildUrl(path: string): string {
+function buildUrl(path: string, base: string | null): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
-  return `${API_BASE}${normalizedPath}`
+  return base ? `${base}${normalizedPath}` : normalizedPath
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(buildUrl(path), {
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
+async function performRequest<T>(path: string, base: string | null, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has("Content-Type") && init?.body) {
+    headers.set("Content-Type", "application/json")
+  }
+
+  const response = await fetch(
+    buildUrl(path, base),
+    {
+      ...init,
+      headers,
+    }
+  )
 
   if (!response.ok) {
     const message = await response.text()
@@ -25,6 +30,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (EXPLICIT_API_BASE) {
+    try {
+      return await performRequest<T>(path, EXPLICIT_API_BASE, init)
+    } catch (error) {
+      if (error instanceof TypeError) {
+        // Network error when using explicit base — fall back to same-origin proxy.
+        return await performRequest<T>(path, null, init)
+      }
+      throw error
+    }
+  }
+  return performRequest<T>(path, null, init)
 }
 
 export type ApiLabel = {
@@ -105,9 +125,7 @@ export async function fetchConfig(): Promise<ApiConfig> {
   return request<ApiConfig>("/api/config")
 }
 
-export async function updateConfig(
-  payload: Partial<Pick<ApiConfig, "root" | "max_images">>
-): Promise<{ status: string; config: ApiConfig }> {
+export async function updateConfig(payload: Partial<ApiConfig>): Promise<{ status: string; config: ApiConfig }> {
   return request<{ status: string; config: ApiConfig }>("/api/config", {
     method: "POST",
     body: JSON.stringify(payload),

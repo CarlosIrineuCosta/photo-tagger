@@ -13,7 +13,7 @@ import hashlib
 
 import numpy as np
 
-from app.core import clip_model, export as export_core, labels as labels_core
+from app.core import clip_model, export as export_core, label_pack as label_pack_core, labels as labels_core
 from app.core import medoid as medoid_core
 from app.core import scan as scan_core
 from app.core import score as score_core
@@ -198,6 +198,7 @@ def _load_or_create_label_embeddings(
     tokenizer: object,
     device: str | None,
     prompt: str,
+    prompts_per_label: Mapping[str, Sequence[str]] | None,
     model_name: str,
     pretrained: str,
 ) -> np.ndarray:
@@ -209,6 +210,8 @@ def _load_or_create_label_embeddings(
         "model_name": model_name,
         "pretrained": pretrained,
     }
+    if prompts_per_label:
+        expected_meta["prompt_map_hash"] = label_pack_core.hash_prompt_map(prompts_per_label)
     if label_emb_path.exists() and meta_path.exists():
         cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
         if cached_meta == expected_meta:
@@ -220,6 +223,7 @@ def _load_or_create_label_embeddings(
         tokenizer=tokenizer,
         device=device,
         prompt=prompt,
+        prompts_per_label=dict(prompts_per_label) if prompts_per_label else None,
     )
     np.save(label_emb_path, embeddings)
     meta_path.write_text(json.dumps(expected_meta, indent=2), encoding="utf-8")
@@ -277,7 +281,22 @@ def cmd_score(args: argparse.Namespace) -> None:
     model_name = args.model_name or record.get("model_name") or "ViT-L-14"
     pretrained = args.pretrained or record.get("pretrained") or "openai"
 
-    labels_list = labels_core.load_labels(args.labels)
+    prompts_per_label: Mapping[str, Sequence[str]] | None = None
+    label_thresholds: Dict[str, float] | None = None
+    equivalence_groups: Sequence[Sequence[str]] | None = None
+    labels_source = Path(args.labels).expanduser()
+    label_pack_dir: str | None = None
+
+    if labels_source.is_dir():
+        pack = label_pack_core.load_label_pack(labels_source)
+        labels_list = pack.labels
+        prompts_per_label = pack.prompts_per_label
+        label_thresholds = pack.label_thresholds
+        equivalence_groups = pack.equivalence_groups
+        label_pack_dir = str(pack.source_dir)
+    else:
+        labels_list = labels_core.load_labels(labels_source)
+
     if not labels_list:
         raise RuntimeError(f"No labels loaded from {args.labels}")
 
@@ -295,6 +314,7 @@ def cmd_score(args: argparse.Namespace) -> None:
         tokenizer=tokenizer,
         device=device,
         prompt=args.prompt,
+        prompts_per_label=prompts_per_label,
         model_name=model_name,
         pretrained=pretrained,
     )
@@ -305,6 +325,7 @@ def cmd_score(args: argparse.Namespace) -> None:
         labels=labels_list,
         topk=args.topk,
         threshold=args.threshold,
+        label_thresholds=label_thresholds,
     )
     serialized = []
     for image_path, entry in zip(image_paths, results):
@@ -320,13 +341,19 @@ def cmd_score(args: argparse.Namespace) -> None:
                 ],
             }
         )
+        if equivalence_groups:
+            filtered = label_pack_core.reduce_equivalences(serialized[-1]["over_threshold"], equivalence_groups)
+            serialized[-1]["over_threshold"] = filtered
+
     _write_json(_scores_file(run_path), serialized)
-    _update_run_record(
-        run_path,
-        labels_file=str(Path(args.labels).expanduser().resolve()),
-        topk=args.topk,
-        threshold=args.threshold,
-    )
+    record_update = {
+        "labels_file": str(Path(args.labels).expanduser().resolve()),
+        "topk": args.topk,
+        "threshold": args.threshold,
+    }
+    if label_pack_dir:
+        record_update["label_pack"] = label_pack_dir
+    _update_run_record(run_path, **record_update)
     _append_log(run_path, f"score completed ({len(serialized)} images) in {_duration(start):.2f}s")
     print(f"[score] scored {len(serialized)} images using {len(labels_list)} labels")
 
