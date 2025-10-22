@@ -14,6 +14,9 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
+from backend.api.enhanced_tagging import router as enhanced_router
+from backend.api.tags import router as tags_router
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
@@ -24,6 +27,9 @@ from app.core import scan as scan_core
 from app.core import thumbs as thumbs_core
 
 app = FastAPI(title="Photo Tagger API", version="0.1.0")
+
+app.include_router(enhanced_router)
+app.include_router(tags_router)
 
 app.add_middleware(
     CORSMiddleware,

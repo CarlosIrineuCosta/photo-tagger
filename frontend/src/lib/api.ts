@@ -131,3 +131,44 @@ export async function updateConfig(payload: Partial<ApiConfig>): Promise<{ statu
     body: JSON.stringify(payload),
   })
 }
+
+export type TagGroupSummary = {
+  id: string
+  label: string
+  path: string
+  tags: string[]
+}
+
+export type OrphanTagSummary = {
+  name: string
+  occurrences: number
+}
+
+export type TagSummaryResponse = {
+  groups: TagGroupSummary[]
+  orphan_tags: OrphanTagSummary[]
+  stats: Record<string, number>
+}
+
+export async function fetchTagSummary(): Promise<TagSummaryResponse> {
+  return request<TagSummaryResponse>("/api/tags/summary")
+}
+
+export type MutateTagPayload = {
+  group: string
+  tag: string
+}
+
+export async function addTagToGroup(payload: MutateTagPayload): Promise<{ status: string; group: string; tag: string; total: number }> {
+  return request<{ status: string; group: string; tag: string; total: number }>("/api/tags/item", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteTagFromGroup(payload: MutateTagPayload): Promise<{ status: string; group: string; tag: string; total: number }> {
+  return request<{ status: string; group: string; tag: string; total: number }>("/api/tags/item", {
+    method: "DELETE",
+    body: JSON.stringify(payload),
+  })
+}

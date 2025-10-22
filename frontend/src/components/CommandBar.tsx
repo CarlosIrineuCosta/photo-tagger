@@ -22,6 +22,7 @@ type CommandBarProps = {
   onSaveApproved?: () => void
   processing?: boolean
   needsProcessing?: boolean
+  saving?: boolean
 }
 
 const PAGE_SIZES = [25, 50, 100]
@@ -37,26 +38,30 @@ export function CommandBar({
   onSaveApproved,
   processing = false,
   needsProcessing = false,
+  saving = false,
 }: CommandBarProps) {
   const handleFilterToggle = (key: FilterKey) => (pressed: boolean) => {
     onFiltersChange({ ...filters, [key]: pressed })
   }
+
+  const busy = processing || saving
 
   return (
     <section className="sticky top-14 z-40 flex h-16 items-center gap-2.5 border-b border-line/60 bg-panel px-5">
       <Button
         size="sm"
         onClick={onProcessImages}
-        disabled={processing}
+        disabled={busy}
         variant={needsProcessing ? "destructive" : "default"}
       >
-        {processing ? "Processing…" : "Process images"}
+        {processing ? "Processing…" : saving ? "Saving…" : "Process images"}
       </Button>
       <Separator orientation="vertical" className="h-8 bg-line" />
       <Toggle
         pressed={filters.medoidsOnly}
         onPressedChange={handleFilterToggle("medoidsOnly")}
         className="rounded-full px-3 text-xs"
+        disabled={busy}
       >
         Medoids only
       </Toggle>
@@ -64,6 +69,7 @@ export function CommandBar({
         pressed={filters.unapprovedOnly}
         onPressedChange={handleFilterToggle("unapprovedOnly")}
         className="rounded-full px-3 text-xs"
+        disabled={busy}
       >
         Only unapproved
       </Toggle>
@@ -71,19 +77,21 @@ export function CommandBar({
         pressed={filters.hideAfterSave}
         onPressedChange={handleFilterToggle("hideAfterSave")}
         className="rounded-full px-3 text-xs"
+        disabled={busy}
       >
-        Hide after save
+        Hide saved
       </Toggle>
       <Toggle
         pressed={filters.centerCrop}
         onPressedChange={handleFilterToggle("centerCrop")}
         className="rounded-full px-3 text-xs"
+        disabled={busy}
       >
         Center-crop
       </Toggle>
       <Separator orientation="vertical" className="h-8 bg-line" />
-      <Button size="sm" variant="outline" onClick={onSaveApproved} disabled={processing}>
-        Save approved
+      <Button size="sm" variant="outline" onClick={onSaveApproved} disabled={busy}>
+        {saving ? "Saving…" : "Save approved"}
       </Button>
       <Separator orientation="vertical" className="ml-1 h-8 bg-line" />
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -96,6 +104,7 @@ export function CommandBar({
               size="sm"
               className={cn("h-8 px-3 text-xs", pageSize === size && "bg-panel-2 text-foreground")}
               onClick={() => onPageSizeChange?.(size)}
+              disabled={busy}
             >
               {size}
             </Button>
@@ -103,12 +112,12 @@ export function CommandBar({
         </div>
       </div>
       <div className="ml-auto flex items-center gap-2">
-        <Button size="sm" variant="outline" onClick={onToggleWorkflow}>
+        <Button size="sm" variant="outline" onClick={onToggleWorkflow} disabled={busy}>
           Workflow
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="default">
+            <Button size="sm" variant="default" disabled={busy}>
               Export ▾
             </Button>
           </DropdownMenuTrigger>

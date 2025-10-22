@@ -2,10 +2,9 @@ import { Navigate, RouterProvider, createBrowserRouter } from "react-router-dom"
 
 import { AppLayout } from "@/layout/AppLayout"
 import { ConfigPage } from "@/pages/ConfigPage"
-import { GalleryPageEnhanced } from "@/pages/GalleryPage_enhanced"
+import { GalleryPage } from "@/pages/GalleryPage"
 import { HelpPage } from "@/pages/HelpPage"
 import { LoginPage } from "@/pages/LoginPage"
-import { TagsPage } from "@/pages/TagsPage"
 import type { StatusEntry } from "@/components/StatusStrip"
 
 const STATUS_LOG: StatusEntry[] = [
@@ -20,9 +19,8 @@ const router = createBrowserRouter([
     path: "/",
     element: <AppLayout statusLog={STATUS_LOG} />,
     children: [
-      { index: true, element: <GalleryPageEnhanced /> },
+      { index: true, element: <GalleryPage /> },
       { path: "config", element: <ConfigPage /> },
-      { path: "tags", element: <TagsPage /> },
       { path: "help", element: <HelpPage /> },
       { path: "login", element: <LoginPage /> },
     ],
@@ -30,8 +28,8 @@ const router = createBrowserRouter([
   { path: "*", element: <Navigate to="/" replace /> },
 ])
 
-function App() {
+function AppStandard() {
   return <RouterProvider router={router} />
 }
 
-export default App
+export default AppStandard

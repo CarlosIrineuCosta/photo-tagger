@@ -9,6 +9,7 @@ type TopbarProps = {
 const DEFAULT_ROUTES = [
   { label: "Gallery", href: "/" },
   { label: "Config", href: "/config" },
+  { label: "Tags", href: "/tags" },
   { label: "Help", href: "/help" },
   { label: "Login", href: "/login" },
 ]
