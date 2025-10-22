@@ -11,6 +11,8 @@ from app.core import labels as label_utils
 
 
 DEFAULT_PROMPT = "a photo of {}"
+DEFAULT_GROUPS = ("objects", "scenes", "styles")
+IGNORE_FILES = {"candidates.txt"}
 
 
 @dataclass(frozen=True)
@@ -50,18 +52,25 @@ def load_label_pack(path: str | Path) -> LabelPack:
     if not path.is_dir():
         raise NotADirectoryError(f"Label pack directory not found: {path}")
 
-    objects = _read_label_file(path / "objects.txt")
-    scenes = _read_label_file(path / "scenes.txt")
-    styles = _read_label_file(path / "styles.txt")
+    group_paths: List[tuple[str, Path]] = []
+    for group_id in DEFAULT_GROUPS:
+        group_paths.append((group_id, path / f"{group_id}.txt"))
 
-    labels = [*objects, *scenes, *styles]
+    for candidate in sorted(path.glob("*.txt")):
+        if candidate.name.lower() in IGNORE_FILES:
+            continue
+        group_id = candidate.stem.lower()
+        if group_id in DEFAULT_GROUPS:
+            continue
+        group_paths.append((group_id, candidate))
+
+    labels: List[str] = []
     tier_for_label: Dict[str, str] = {}
-    for label in objects:
-        tier_for_label[label] = "objects"
-    for label in scenes:
-        tier_for_label[label] = "scenes"
-    for label in styles:
-        tier_for_label[label] = "styles"
+    for group_id, group_path in group_paths:
+        values = _read_label_file(group_path)
+        labels.extend(values)
+        for label in values:
+            tier_for_label[label] = group_id
 
     prompts_config = _load_yaml(path / "prompts.yaml")
     tier_templates: Dict[str, List[str]] = {}

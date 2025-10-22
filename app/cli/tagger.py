@@ -5,9 +5,10 @@ import csv
 import json
 import sys
 import time
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import hashlib
 
@@ -18,6 +19,7 @@ from app.core import medoid as medoid_core
 from app.core import scan as scan_core
 from app.core import score as score_core
 from app.core import thumbs as thumbs_core
+from app.util import metrics as metrics_core
 
 
 RUN_RECORD = "run.json"
@@ -31,6 +33,8 @@ MEDOIDS_FILE = "medoids.csv"
 EXPORT_FILE = "results.csv"
 APPROVED_FILE = "approved.csv"
 LOG_FILE = "log.txt"
+NEW_TAGS_FILE = "new_tags.csv"
+AUTO_NEW_TAGS = "__AUTO_NEW_TAGS__"
 
 
 def _now() -> str:
@@ -145,6 +149,100 @@ def _relative_path(full_path: Path, root: Path) -> str:
         return str(rel)
     except ValueError:
         return full_path.name
+
+
+def _api_state_path(run_dir: str | Path) -> Path:
+    return Path(run_dir) / "api_state.json"
+
+
+def _load_api_state(run_dir: str | Path) -> Dict[str, object]:
+    path = _api_state_path(run_dir)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _label_set_from_source(source: str | Path) -> Set[str]:
+    path = Path(source).expanduser()
+    if path.is_dir():
+        pack = label_pack_core.load_label_pack(path)
+        return set(pack.labels)
+    return set(labels_core.load_labels(path))
+
+
+def _collect_new_tags(
+    state: Mapping[str, object],
+    known_labels: Set[str],
+    root: Path,
+    sample_limit: int = 5,
+) -> List[Dict[str, object]]:
+    images = state.get("images") if isinstance(state, Mapping) else None
+    if not isinstance(images, Mapping):
+        return []
+
+    counts: Counter[str] = Counter()
+    examples: Dict[str, List[str]] = defaultdict(list)
+
+    for image_path, entry in images.items():
+        if not isinstance(entry, Mapping):
+            continue
+        selected = entry.get("selected")
+        if not isinstance(selected, Sequence):
+            continue
+        normalized = labels_core.normalize_labels(selected)
+        if not normalized:
+            continue
+        relative_hint = _relative_path(Path(image_path), root)
+        for tag in normalized:
+            counts[tag] += 1
+            bucket = examples[tag]
+            if len(bucket) < sample_limit:
+                bucket.append(relative_hint)
+
+    rows: List[Dict[str, object]] = []
+    for tag, count in counts.items():
+        if tag in known_labels:
+            continue
+        rows.append(
+            {
+                "tag": tag,
+                "occurrences": count,
+                "examples": examples.get(tag, []),
+            }
+        )
+    rows.sort(key=lambda item: (-int(item["occurrences"]), item["tag"]))
+    return rows
+
+
+def _export_new_tags_csv(
+    labels_source: str | Path,
+    run_dir: str | Path,
+    run_path: Path,
+    root: Path,
+    output: Optional[str | Path],
+) -> Optional[Path]:
+    try:
+        known_labels = _label_set_from_source(labels_source)
+    except FileNotFoundError:
+        known_labels = set()
+    state = _load_api_state(run_dir)
+    new_tags = _collect_new_tags(state, known_labels, root)
+    if not new_tags:
+        return None
+
+    dest = Path(output) if output and output != AUTO_NEW_TAGS else run_path / NEW_TAGS_FILE
+    dest = dest.resolve()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    with dest.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["tag", "occurrences", "example_images"])
+        for row in new_tags:
+            examples = row["examples"]
+            serialized = "|".join(examples) if isinstance(examples, Sequence) else ""
+            writer.writerow([row["tag"], row["occurrences"], serialized])
+
+    return dest
 
 
 def cmd_scan(args: argparse.Namespace) -> str:
@@ -377,21 +475,60 @@ def cmd_medoids(args: argparse.Namespace) -> None:
         folder = _relative_path(Path(path_str).parent, root_path)
         folder_map.setdefault(folder, []).append(idx)
 
-    medoid_info = medoid_core.compute_folder_medoids(folder_map, embeddings)
-    rows: List[Tuple[str, str, float]] = []
-    for folder, info in medoid_info.items():
-        medoid_idx = info["medoid_index"]
+    tag_lookup: Optional[Dict[int, Sequence[str]]] = None
+    if getattr(args, "tag_aware", False):
+        scores_map = _load_scores_map(run_path)
+        tag_lookup = {}
+        for idx, path_str in enumerate(image_paths):
+            score_entry = scores_map.get(path_str, {})
+            top_labels = []
+            if isinstance(score_entry, Mapping):
+                over_threshold = score_entry.get("over_threshold")
+                if isinstance(over_threshold, Sequence) and over_threshold and isinstance(over_threshold[0], Mapping):
+                    top_labels = [item.get("label") for item in over_threshold if isinstance(item, Mapping)]
+                if not top_labels:
+                    raw_topk = score_entry.get("top5_labels")
+                    if isinstance(raw_topk, Sequence):
+                        top_labels = [str(label) for label in raw_topk if isinstance(label, str)]
+            normalized = labels_core.normalize_labels(top_labels)
+            if normalized:
+                tag_lookup[idx] = normalized
+
+    medoid_info = medoid_core.compute_folder_medoids(
+        folder_map,
+        embeddings,
+        tags_per_index=tag_lookup,
+        use_tag_clusters=bool(getattr(args, "tag_aware", False)),
+        min_cluster_size=max(1, getattr(args, "cluster_min_size", 3)),
+    )
+
+    rows: List[Tuple[str, str, str, float, int]] = []
+
+    def _append_row(folder_name: str, medoid_idx: int, cosine: float, cluster_tag: str, cluster_size: int) -> None:
         medoid_path = Path(image_paths[medoid_idx])
         rel_path = _relative_path(medoid_path, root_path)
-        rows.append((folder, rel_path, info["cosine_to_centroid"]))
+        rows.append((folder_name, cluster_tag, rel_path, cosine, cluster_size))
+
+    for folder, info in medoid_info.items():
+        cluster_tag = ""
+        _append_row(folder, info["medoid_index"], info["cosine_to_centroid"], cluster_tag, info.get("size", 0))
+        if getattr(args, "tag_aware", False):
+            for cluster in info.get("clusters", []):
+                _append_row(
+                    folder,
+                    cluster["medoid_index"],
+                    cluster["cosine_to_centroid"],
+                    str(cluster.get("tag", "")),
+                    cluster.get("size", 0),
+                )
 
     output_path = Path(args.output or _medoids_file(run_path))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["folder", "medoid_rel_path", "cosine_to_centroid"])
-        for folder, rel_path, cosine in sorted(rows):
-            writer.writerow([folder, rel_path, f"{cosine:.6f}"])
+        writer.writerow(["folder", "cluster_tag", "cluster_size", "medoid_rel_path", "cosine_to_centroid"])
+        for folder, cluster_tag, rel_path, cosine, cluster_size in sorted(rows, key=lambda item: (item[0], item[1])):
+            writer.writerow([folder, cluster_tag, cluster_size, rel_path, f"{cosine:.6f}"])
 
     _update_run_record(run_path, medoids_file=str(output_path))
     _append_log(run_path, f"medoids completed ({len(rows)} folders) in {_duration(start):.2f}s")
@@ -510,6 +647,29 @@ def cmd_sidecars(args: argparse.Namespace) -> None:
     print(f"[sidecars] wrote metadata for {len(paths)} files")
 
 
+def cmd_metrics(args: argparse.Namespace) -> None:
+    """Compute and display evaluation metrics."""
+    try:
+        dataset = metrics_core.load_eval_dataset(args.dataset)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error loading dataset: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not dataset:
+        print("Warning: Dataset is empty", file=sys.stderr)
+        return
+
+    # Compute metrics
+    precision_at_k = metrics_core.compute_precision_at_k(dataset, k=args.k)
+    stack_coverage = metrics_core.compute_stack_coverage(dataset)
+
+    # Display results in a tidy table
+    print(f"Evaluation Metrics (n={len(dataset)} images)")
+    print("-" * 40)
+    print(f"Precision@{args.k}:   {precision_at_k:.4f}")
+    print(f"Stack Coverage:       {stack_coverage:.4f}")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     run_id = args.run_id or _generate_run_id()
     run_path = _ensure_run_path(args.run_dir, run_id, create=True)
@@ -561,6 +721,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         run_dir=args.run_dir,
         output=None,
         root=args.root,
+        tag_aware=getattr(args, "tag_aware_medoids", False),
+        cluster_min_size=getattr(args, "medoid_cluster_min_size", 3),
     )
     cmd_medoids(medoid_args)
 
@@ -582,6 +744,22 @@ def cmd_run(args: argparse.Namespace) -> None:
             batch_size=args.batch_size_sidecar,
         )
         cmd_sidecars(sidecar_args)
+
+    if args.export_new_tags:
+        record = _load_run_record(run_path)
+        root_hint = record.get("root", args.root)
+        root_path = Path(root_hint).expanduser().resolve()
+        export_dest = _export_new_tags_csv(
+            labels_source=args.labels,
+            run_dir=args.run_dir,
+            run_path=run_path,
+            root=root_path,
+            output=args.export_new_tags,
+        )
+        if export_dest:
+            print(f"[run] new tags exported to {export_dest}")
+        else:
+            print("[run] no new user-added tags discovered")
 
     _append_log(run_path, "run completed")
     print(f"[run] completed run_id={run_id}")
@@ -629,6 +807,13 @@ def build_parser() -> argparse.ArgumentParser:
     medoid_parser.add_argument("--run-id", required=True, help="Run identifier")
     medoid_parser.add_argument("--output", help="Optional output CSV path")
     medoid_parser.add_argument("--root", help="Root directory (defaults to run metadata)")
+    medoid_parser.add_argument("--tag-aware", action="store_true", help="Enable tag-aware clustering before medoid selection")
+    medoid_parser.add_argument(
+        "--cluster-min-size",
+        type=int,
+        default=3,
+        help="Minimum images per tag cluster when --tag-aware is enabled",
+    )
     medoid_parser.set_defaults(func=cmd_medoids)
 
     export_parser = subparsers.add_parser("export", help="Export results to CSV")
@@ -664,7 +849,29 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--write-sidecars", action="store_true", help="Write sidecars after export")
     run_parser.add_argument("--sidecar-column", default="approved_labels", help="Column to use for sidecar keywords")
     run_parser.add_argument("--batch-size-sidecar", type=int, default=256, help="Sidecar batch size")
+    run_parser.add_argument(
+        "--tag-aware-medoids",
+        action="store_true",
+        help="Enable tag-aware clustering when computing medoids during run",
+    )
+    run_parser.add_argument(
+        "--medoid-cluster-min-size",
+        type=int,
+        default=3,
+        help="Minimum images required per tag cluster when tag-aware medoids are enabled",
+    )
+    run_parser.add_argument(
+        "--export-new-tags",
+        nargs="?",
+        const=AUTO_NEW_TAGS,
+        help="Write CSV of user-added tags not in the label pack (optional path overrides default runs/<id>/new_tags.csv)",
+    )
     run_parser.set_defaults(func=cmd_run)
+
+    metrics_parser = subparsers.add_parser("metrics", help="Compute evaluation metrics")
+    metrics_parser.add_argument("--dataset", required=True, help="Path to JSONL evaluation dataset")
+    metrics_parser.add_argument("--k", type=int, default=5, help="K value for Precision@K computation")
+    metrics_parser.set_defaults(func=cmd_metrics)
 
     return parser
 

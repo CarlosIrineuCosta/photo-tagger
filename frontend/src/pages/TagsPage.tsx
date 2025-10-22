@@ -4,14 +4,25 @@ import { BlockingOverlay } from "@/components/BlockingOverlay"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import {
   addTagToGroup,
   deleteTagFromGroup,
   fetchTagSummary,
+  promoteOrphanTag,
   type TagGroupSummary,
   type TagSummaryResponse,
+  type OrphanTagSummary,
 } from "@/lib/api"
 import { useStatusLog } from "@/context/status-log"
 
@@ -23,7 +34,15 @@ export function TagsPage() {
   const [error, setError] = useState<string | null>(null)
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [busyGroup, setBusyGroup] = useState<string | null>(null)
+  const [promotionTarget, setPromotionTarget] = useState<OrphanTagSummary | null>(null)
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("")
+  const [newGroupName, setNewGroupName] = useState<string>("")
+  const [savingPromotion, setSavingPromotion] = useState(false)
   const { push: pushStatus } = useStatusLog()
+
+  const groups = useMemo(() => summary?.groups ?? [], [summary])
+  const defaultGroupId = groups[0]?.id ?? ""
+  const promotionReady = Boolean(selectedGroupId || newGroupName.trim())
 
   const loadSummary = useCallback(
     async (overlay?: BlockingState) => {
@@ -50,6 +69,67 @@ export function TagsPage() {
   useEffect(() => {
     void loadSummary()
   }, [loadSummary])
+
+  const closePromotion = useCallback(() => {
+    setPromotionTarget(null)
+    setNewGroupName("")
+    setSelectedGroupId(defaultGroupId)
+  }, [defaultGroupId])
+
+  const handlePromotionOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && !savingPromotion) {
+        closePromotion()
+      }
+    },
+    [closePromotion, savingPromotion]
+  )
+
+  const handlePromoteOrphan = useCallback(async () => {
+    if (!promotionTarget) {
+      return
+    }
+    const cleanedNewGroup = newGroupName.trim()
+    if (!selectedGroupId && !cleanedNewGroup) {
+      pushStatus({ message: "Select an existing group or specify a new group name.", level: "info" })
+      return
+    }
+    setSavingPromotion(true)
+    setBlocking({ title: "Promoting tag…", message: `Adding "${promotionTarget.name}" to the label pack.` })
+    try {
+      const payload: { tag: string; target_group?: string; new_group_label?: string } = { tag: promotionTarget.name }
+      if (cleanedNewGroup) {
+        payload.new_group_label = cleanedNewGroup
+      } else {
+        payload.target_group = selectedGroupId
+      }
+      const response = await promoteOrphanTag(payload)
+      const destination = response.group_label || response.group
+      pushStatus({
+        message: response.created_group
+          ? `Created ${destination} and added "${response.tag}".`
+          : `Added "${response.tag}" to ${destination}.`,
+        level: "success",
+      })
+      closePromotion()
+      await loadSummary({ title: "Refreshing tags…", message: "Re-reading label packs." })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to promote tag"
+      pushStatus({ message, level: "error" })
+      setBlocking(null)
+    } finally {
+      setSavingPromotion(false)
+    }
+  }, [closePromotion, loadSummary, newGroupName, promotionTarget, pushStatus, selectedGroupId])
+
+  const openPromotion = useCallback(
+    (item: OrphanTagSummary) => {
+      setPromotionTarget(item)
+      setSelectedGroupId(defaultGroupId)
+      setNewGroupName("")
+    },
+    [defaultGroupId]
+  )
 
   const handleInputChange = useCallback((groupId: string, value: string) => {
     setInputs((prev) => ({ ...prev, [groupId]: value }))
@@ -142,7 +222,7 @@ export function TagsPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        {summary?.groups.map((group) => (
+        {groups.map((group) => (
           <Card key={group.id} className="border-line/60 bg-panel">
             <CardHeader>
               <CardTitle className="text-lg font-semibold text-foreground">{group.label}</CardTitle>
@@ -203,7 +283,8 @@ export function TagsPage() {
                 <thead className="sticky top-0 bg-panel-2">
                   <tr className="border-b border-line/40 text-muted-foreground">
                     <th className="px-4 py-2">Tag</th>
-                    <th className="w-28 px-4 py-2 text-right">Occurrences</th>
+                    <th className="w-24 px-4 py-2 text-right">Occurrences</th>
+                    <th className="w-32 px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -212,11 +293,21 @@ export function TagsPage() {
                       <tr key={item.name} className="border-t border-line/20">
                         <td className="px-4 py-2 text-foreground">{item.name}</td>
                         <td className="px-4 py-2 text-right text-muted-foreground">{item.occurrences}</td>
+                        <td className="px-4 py-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openPromotion(item)}
+                            disabled={!!blocking || savingPromotion}
+                          >
+                            Promote
+                          </Button>
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={2}>
+                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={3}>
                         No orphan tags detected in the latest run.
                       </td>
                     </tr>
@@ -227,6 +318,69 @@ export function TagsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Sheet open={!!promotionTarget} onOpenChange={handlePromotionOpenChange}>
+        <SheetContent side="right" className="w-full sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Promote tag</SheetTitle>
+            <SheetDescription>
+              {promotionTarget ? (
+                <>
+                  Promote <span className="font-medium text-foreground">{promotionTarget.name}</span> into a structured
+                  group.
+                  {typeof promotionTarget.occurrences === "number" ? (
+                    <>
+                      {" "}
+                      Seen {promotionTarget.occurrences} time{promotionTarget.occurrences === 1 ? "" : "s"} in recent
+                      reviews.
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                "Select a tag to promote."
+              )}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="promotion-group">Existing group</Label>
+              <select
+                id="promotion-group"
+                className="w-full rounded-md border border-line/40 bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                value={selectedGroupId}
+                onChange={(event) => setSelectedGroupId(event.target.value)}
+                disabled={savingPromotion || groups.length === 0}
+              >
+                {groups.length === 0 ? <option value="">No groups available</option> : null}
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="promotion-new-group">Create new group</Label>
+              <Input
+                id="promotion-new-group"
+                placeholder="e.g. AI concepts"
+                value={newGroupName}
+                onChange={(event) => setNewGroupName(event.target.value)}
+                disabled={savingPromotion}
+              />
+              <p className="text-xs text-muted-foreground">Leave blank to use the selected group.</p>
+            </div>
+          </div>
+          <SheetFooter className="mt-6">
+            <Button variant="outline" onClick={closePromotion} disabled={savingPromotion}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handlePromoteOrphan()} disabled={savingPromotion || !promotionReady}>
+              {savingPromotion ? "Promoting…" : "Promote"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

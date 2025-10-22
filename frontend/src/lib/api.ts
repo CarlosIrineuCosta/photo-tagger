@@ -172,3 +172,26 @@ export async function deleteTagFromGroup(payload: MutateTagPayload): Promise<{ s
     body: JSON.stringify(payload),
   })
 }
+
+export type PromoteOrphanTagPayload = {
+  tag: string
+  target_group?: string
+  new_group_label?: string
+}
+
+export type PromoteOrphanTagResponse = {
+  status: string
+  tag: string
+  group: string
+  group_label: string
+  total: number
+  created_group: boolean
+  occurrences?: number
+}
+
+export async function promoteOrphanTag(payload: PromoteOrphanTagPayload): Promise<PromoteOrphanTagResponse> {
+  return request<PromoteOrphanTagResponse>("/api/tags/promote", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
