@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Toggle } from "@/components/ui/toggle"
 import { cn } from "@/lib/utils"
-import type { ApiGalleryItem, ApiLabel } from "@/lib/api"
+import type { ApiGalleryItem, ApiLabel, ApiMedoidCluster } from "@/lib/api"
 
 type GalleryGridProps = {
   items: ApiGalleryItem[]
@@ -34,6 +34,27 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
       return selected.includes(labelName)
     },
     [itemState]
+  )
+
+  const renderClusterBadge = useCallback(
+    (cluster: ApiMedoidCluster, folderName?: string) => {
+      const parts: string[] = []
+      if (cluster.cluster_type === "tag") {
+        parts.push(cluster.cluster_tag || cluster.label_hint || "Tag cluster")
+      } else if (cluster.cluster_type === "embedding") {
+        parts.push(cluster.label_hint || "Embedding cluster")
+      } else {
+        parts.push(folderName ? `Folder · ${folderName}` : "Folder medoid")
+      }
+      if (cluster.cluster_size) {
+        parts.push(`n=${cluster.cluster_size}`)
+      }
+      if (cluster.cosine_to_centroid) {
+        parts.push(`cos=${cluster.cosine_to_centroid.toFixed(2)}`)
+      }
+      return parts.join(" · ")
+    },
+    []
   )
 
   return (
@@ -82,6 +103,20 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
             </div>
             <CardContent className="flex flex-1 flex-col gap-2.5 p-3">
               <div className="truncate text-xs text-muted-foreground">{item.filename}</div>
+              {item.medoid && item.medoid_clusters && item.medoid_clusters.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {item.medoid_clusters.slice(0, 3).map((cluster, index) => (
+                    <Badge key={`${cluster.cluster_type}-${cluster.label_hint}-${index}`} variant="outline" className="text-[10px] uppercase">
+                      {renderClusterBadge(cluster, item.medoid_folder)}
+                    </Badge>
+                  ))}
+                  {item.medoid_clusters.length > 3 ? (
+                    <Badge variant="outline" className="text-[10px] uppercase">
+                      +{item.medoid_clusters.length - 3} more
+                    </Badge>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {item.labels.slice(0, 6).map((label) => {
                   const pressed = isLabelApproved(item.path, label.name)

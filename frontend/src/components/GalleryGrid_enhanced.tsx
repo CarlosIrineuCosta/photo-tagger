@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Toggle } from "@/components/ui/toggle"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { ApiMedoidCluster } from "@/lib/api"
 import type { EnhancedGalleryItem, TagCandidate } from "@/lib/enhanced_api"
 
 type GalleryGridProps = {
@@ -72,6 +73,24 @@ export function GalleryGridEnhanced({
     []
   )
 
+  const renderClusterBadge = useCallback((cluster: ApiMedoidCluster, folderName?: string) => {
+    const parts: string[] = []
+    if (cluster.cluster_type === "tag") {
+      parts.push(cluster.cluster_tag || cluster.label_hint || "Tag cluster")
+    } else if (cluster.cluster_type === "embedding") {
+      parts.push(cluster.label_hint || "Embedding cluster")
+    } else {
+      parts.push(folderName ? `Folder · ${folderName}` : "Folder medoid")
+    }
+    if (cluster.cluster_size) {
+      parts.push(`n=${cluster.cluster_size}`)
+    }
+    if (cluster.cosine_to_centroid) {
+      parts.push(`cos=${cluster.cosine_to_centroid.toFixed(2)}`)
+    }
+    return parts.join(" · ")
+  }, [])
+
   return (
     <section className={cn("rounded-2xl border border-line/60 bg-panel p-3.5", className)}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
@@ -118,6 +137,20 @@ export function GalleryGridEnhanced({
             </div>
             <CardContent className="flex flex-1 flex-col gap-2.5 p-3">
               <div className="truncate text-xs text-muted-foreground">{item.filename}</div>
+              {item.medoid && item.medoid_clusters && item.medoid_clusters.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {item.medoid_clusters.slice(0, 3).map((cluster, index) => (
+                    <Badge key={`${cluster.cluster_type}-${cluster.label_hint}-${index}`} variant="outline" className="text-[10px] uppercase">
+                      {renderClusterBadge(cluster, item.medoid_folder)}
+                    </Badge>
+                  ))}
+                  {item.medoid_clusters.length > 3 ? (
+                    <Badge variant="outline" className="text-[10px] uppercase">
+                      +{item.medoid_clusters.length - 3} more
+                    </Badge>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Display Tags */}
               <div className="flex flex-wrap gap-1.5 text-xs">

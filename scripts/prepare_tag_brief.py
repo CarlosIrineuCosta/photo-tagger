@@ -39,7 +39,12 @@ def parse_args() -> argparse.Namespace:
         "--top-n",
         type=int,
         default=50,
-        help="Number of frequent orphan tags to include (default: 50)",
+        help="Maximum number of frequent orphan tags to include (default: 50)",
+    )
+    parser.add_argument(
+        "--include-canonical",
+        action="store_true",
+        help="Include canonical tags in the analysis sorted by frequency",
     )
     parser.add_argument(
         "--output",
@@ -50,11 +55,56 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_export_data(csv_path: str) -> List[Dict[str, str]]:
-    """Load and parse the CSV export file."""
-    with open(csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        return list(reader)
+def load_export_data(file_path: str) -> List[Dict[str, str]]:
+    """Load and parse the export file (CSV or JSON)."""
+    path = Path(file_path)
+
+    if path.suffix.lower() == ".json":
+        # Load JSON file
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Convert JSON format to CSV-like format
+        result = []
+        for item in data:
+            # Extract tags from topk_labels and over_threshold
+            topk_labels = item.get("topk_labels", [])
+            over_threshold = item.get("over_threshold", [])
+
+            # Get approved labels (those over threshold)
+            approved_labels = [label_item["label"] for label_item in over_threshold]
+
+            # Get top5 labels
+            top5_labels = "|".join(topk_labels[:5]) if topk_labels else ""
+
+            # Get top5 scores
+            top5_scores = item.get("topk_scores", [])[:5]
+            top5_scores_str = "|".join(str(score) for score in top5_scores) if top5_scores else ""
+
+            # Get top1 and score
+            top1 = item.get("top1", "")
+            top1_score = item.get("top1_score", 0)
+
+            result.append({
+                "path": item.get("path", ""),
+                "rel_path": Path(item.get("path", "")).name,
+                "width": "",
+                "height": "",
+                "top1": top1,
+                "top1_score": top1_score,
+                "top5_labels": top5_labels,
+                "top5_scores": top5_scores_str,
+                "approved_labels": "|".join(approved_labels),
+                "run_id": "",
+                "model_name": ""
+            })
+
+        return result
+    else:
+        # Load CSV file
+        with open(path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            return list(reader)
 
 
 def extract_all_tags(export_data: List[Dict[str, str]]) -> List[str]:
@@ -79,9 +129,10 @@ def find_orphan_tags(
     all_tags: List[str],
     label_pack: LabelPack,
     top_n: int = 50
-) -> List[Dict[str, object]]:
+) -> Tuple[List[Dict[str, object]], List[Dict[str, object]]]:
     """
     Find orphan tags (tags not in the canonical label set) and their frequencies.
+    Also return all tags sorted by frequency for analysis.
     """
     # Count tag occurrences
     tag_counter = Counter(all_tags)
@@ -96,7 +147,7 @@ def find_orphan_tags(
     # Get the top N most frequent orphan tags
     top_orphans = Counter(orphan_tags).most_common(top_n)
 
-    result = []
+    orphan_result = []
     for tag, count in top_orphans:
         # Try to suggest a group based on similarity to existing groups
         suggested_group = suggest_group_for_tag(tag, label_pack)
@@ -107,14 +158,34 @@ def find_orphan_tags(
             "frequency_ratio": count / len(all_tags),
         }
 
-        result.append({
+        orphan_result.append({
             "tag": tag,
             "occurrences": count,
             "suggested_group": suggested_group,
             "scores": scores,
         })
 
-    return result
+    # Get all tags sorted by frequency (including canonical ones)
+    all_tags_sorted = tag_counter.most_common()
+    all_tags_result = []
+    for tag, count in all_tags_sorted:
+        is_canonical = tag in canonical_tags
+        suggested_group = suggest_group_for_tag(tag, label_pack) if not is_canonical else None
+
+        scores = {
+            "frequency": count,
+            "frequency_ratio": count / len(all_tags),
+        }
+
+        all_tags_result.append({
+            "tag": tag,
+            "occurrences": count,
+            "is_canonical": is_canonical,
+            "suggested_group": suggested_group,
+            "scores": scores,
+        })
+
+    return orphan_result, all_tags_result
 
 
 def suggest_group_for_tag(tag: str, label_pack: LabelPack) -> str:
@@ -210,7 +281,11 @@ def generate_questions(
             questions.append(f"Should we split {info.label} into subgroups?")
 
     # Check specific patterns in orphan tags
-    orphan_text = [tag["tag"].lower() for tag in orphan_tags]
+    orphan_text = []
+    for tag in orphan_tags:
+        if isinstance(tag, dict) and "tag" in tag and isinstance(tag["tag"], str):
+            orphan_text.append(tag["tag"].lower())
+
     if any("indoor" in tag or "outdoor" in tag for tag in orphan_text):
         questions.append("Should we split scenes into indoor/outdoor?")
 
@@ -247,33 +322,53 @@ def write_brief(
             f.write("## Top Orphan Tags\n\n")
             f.write("| Tag | Occurrences | Suggested Group |\n")
             f.write("|-----|-------------|------------------|\n")
-            for tag in brief_data["top_orphans"]:
-                f.write(f"| {tag['tag']} | {tag['occurrences']} | {tag['suggested_group']} |\n")
+            top_orphans = brief_data.get("top_orphans", [])
+            if isinstance(top_orphans, list):
+                for tag in top_orphans:
+                    f.write(f"| {tag['tag']} | {tag['occurrences']} | {tag['suggested_group']} |\n")
             f.write("\n")
+
+            # All tags sorted by frequency (if available)
+            all_tags = brief_data.get("all_tags_sorted", [])
+            if all_tags and isinstance(all_tags, list):
+                f.write("## All Tags Sorted by Frequency\n\n")
+                f.write("| Tag | Occurrences | Canonical | Suggested Group |\n")
+                f.write("|-----|-------------|-----------|------------------|\n")
+                for tag in all_tags:
+                    canonical = "✓" if tag["is_canonical"] else "✗"
+                    suggested = tag["suggested_group"] or ""
+                    f.write(f"| {tag['tag']} | {tag['occurrences']} | {canonical} | {suggested} |\n")
+                f.write("\n")
 
             # Canonical groups
             f.write("## Canonical Groups\n\n")
             f.write("| ID | Label | Size | Aliases |\n")
             f.write("|----|-------|------|----------|\n")
-            for group in brief_data["canonical_groups"]:
-                aliases = ", ".join(group["aliases"][:3])  # Show first 3 aliases
-                if len(group["aliases"]) > 3:
-                    aliases += f" (+{len(group['aliases']) - 3} more)"
-                f.write(f"| {group['id']} | {group['label']} | {group['size']} | {aliases} |\n")
+            canonical_groups = brief_data.get("canonical_groups", [])
+            if isinstance(canonical_groups, list):
+                for group in canonical_groups:
+                    aliases = ", ".join(group["aliases"][:3])  # Show first 3 aliases
+                    if len(group["aliases"]) > 3:
+                        aliases += f" (+{len(group['aliases']) - 3} more)"
+                    f.write(f"| {group['id']} | {group['label']} | {group['size']} | {aliases} |\n")
             f.write("\n")
 
             # Alias map
             f.write("## Alias Mappings\n\n")
             f.write("| Alias | Canonical |\n")
             f.write("|-------|-----------|\n")
-            for alias, canonical in brief_data["alias_map"].items():
-                f.write(f"| {alias} | {canonical} |\n")
+            alias_map = brief_data.get("alias_map", {})
+            if isinstance(alias_map, dict):
+                for alias, canonical in alias_map.items():
+                    f.write(f"| {alias} | {canonical} |\n")
             f.write("\n")
 
             # Questions
             f.write("## Suggested Questions\n\n")
-            for question in brief_data["questions"]:
-                f.write(f"- {question}\n")
+            questions = brief_data.get("questions", [])
+            if isinstance(questions, list):
+                for question in questions:
+                    f.write(f"- {question}\n")
             f.write("\n")
 
 
@@ -292,9 +387,17 @@ def main() -> None:
     all_tags = extract_all_tags(export_data)
     print(f"Extracted {len(all_tags)} total tag instances")
 
-    # Find orphan tags
-    orphan_tags = find_orphan_tags(all_tags, label_pack, args.top_n)
-    print(f"Found {len(orphan_tags)} top orphan tags")
+    # Find orphan tags and get all tags sorted
+    orphan_tags, all_tags_sorted = find_orphan_tags(all_tags, label_pack, args.top_n)
+
+    # Print informative messages
+    total_orphans = len([t for t in all_tags_sorted if not t["is_canonical"]])
+    if total_orphans == 0:
+        print("No orphan tags found - all tags are in the canonical label set")
+    elif total_orphans < args.top_n:
+        print(f"Found {total_orphans} orphan tags total (fewer than requested {args.top_n})")
+    else:
+        print(f"Found {total_orphans} orphan tags total, showing top {len(orphan_tags)}")
 
     # Get canonical groups
     canonical_groups = get_canonical_groups(label_pack)
@@ -312,6 +415,10 @@ def main() -> None:
         "alias_map": alias_map,
         "questions": questions,
     }
+
+    # Include all tags sorted if requested
+    if args.include_canonical:
+        brief_data["all_tags_sorted"] = all_tags_sorted[:100]  # Include top 100 tags for analysis
 
     # Write brief
     write_brief(brief_data, args.output)

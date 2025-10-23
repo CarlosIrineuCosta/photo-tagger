@@ -52,6 +52,14 @@ export type ApiLabel = {
   score: number
 }
 
+export type ApiMedoidCluster = {
+  cluster_type: "folder" | "tag" | "embedding" | string
+  cluster_tag: string
+  label_hint: string
+  cluster_size: number
+  cosine_to_centroid: number
+}
+
 export type ApiGalleryItem = {
   id: string
   filename: string
@@ -60,6 +68,10 @@ export type ApiGalleryItem = {
   width?: number | null
   height?: number | null
   medoid: boolean
+  medoid_folder?: string
+  medoid_clusters?: ApiMedoidCluster[]
+  medoid_cluster_size?: number | null
+  medoid_cosine_to_centroid?: number | null
   saved: boolean
   selected: string[]
   label_source?: "scores" | "sidecar" | "fallback"

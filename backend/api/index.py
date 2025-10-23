@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import subprocess
@@ -8,7 +9,7 @@ import threading
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Mapping, Optional
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
@@ -218,7 +219,13 @@ def _extract_sidecar_keywords(image_path: str) -> List[str]:
 def _collect_runs(run_dir: Path) -> List[Path]:
     if not run_dir.exists():
         return []
-    return [path for path in run_dir.iterdir() if path.is_dir()]
+    runs: List[Path] = []
+    for candidate in run_dir.iterdir():
+        if not candidate.is_dir():
+            continue
+        if (candidate / "run.json").exists():
+            runs.append(candidate)
+    return runs
 
 
 def _latest_run_path(run_dir: Path) -> Optional[Path]:
@@ -243,6 +250,126 @@ def _build_scores_lookup(entries: Iterable[dict]) -> Dict[str, dict]:
         for variant in variants:
             lookup[variant] = entry
     return lookup
+
+
+def _load_run_metadata(run_path: Path) -> Dict[str, object]:
+    record_path = run_path / "run.json"
+    if not record_path.exists():
+        return {}
+    try:
+        with record_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        return {}
+    return {}
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+
+
+def _resolve_medoids_csv(
+    run_path: Path,
+    metadata: Mapping[str, object],
+) -> Optional[Path]:
+    candidates: List[Path] = []
+    default_csv = run_path / "medoids.csv"
+    candidates.append(default_csv)
+
+    meta_path = metadata.get("medoids_file")
+    if isinstance(meta_path, str) and meta_path.strip():
+        candidate = Path(meta_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = (run_path.parent / candidate).resolve()
+        candidates.insert(0, candidate)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_medoid_map(
+    run_path: Path,
+    root_path: Path,
+    metadata: Mapping[str, object],
+) -> Dict[str, Dict[str, object]]:
+    medoids_csv = _resolve_medoids_csv(run_path, metadata)
+    if medoids_csv is None:
+        return {}
+
+    medoid_lookup: Dict[str, Dict[str, object]] = {}
+    try:
+        with medoids_csv.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+    except Exception:
+        return {}
+
+    for row in rows:
+        rel_path = row.get("medoid_rel_path") or row.get("medoid_path") or row.get("medoid")
+        if not isinstance(rel_path, str) or not rel_path.strip():
+            continue
+        rel_path = rel_path.strip()
+        try:
+            abs_path = (root_path / rel_path).resolve()
+        except Exception:
+            continue
+
+        cluster_type = (row.get("cluster_type") or "folder").strip().lower()
+        if cluster_type not in {"folder", "tag", "embedding"}:
+            cluster_type = "folder"
+        cluster_tag = (row.get("cluster_tag") or "").strip()
+        label_hint = (row.get("label_hint") or cluster_tag).strip()
+        cluster_size = _safe_int(row.get("cluster_size"))
+        cosine = _safe_float(row.get("cosine_to_centroid"))
+        folder_name = (row.get("folder") or "").strip()
+
+        key = str(abs_path)
+        entry = medoid_lookup.setdefault(
+            key,
+            {
+                "folder": folder_name,
+                "clusters": [],
+            },
+        )
+        if folder_name and not entry.get("folder"):
+            entry["folder"] = folder_name
+        cluster_entry = {
+            "cluster_type": cluster_type,
+            "cluster_tag": cluster_tag,
+            "label_hint": label_hint,
+            "cluster_size": cluster_size,
+            "cosine_to_centroid": cosine,
+        }
+        entry["clusters"].append(cluster_entry)
+        if cluster_type == "folder":
+            entry["cluster_size"] = cluster_size
+            entry["cosine_to_centroid"] = cosine
+        rel_key = rel_path.replace("\\", "/")
+        medoid_lookup.setdefault(rel_key, entry)
+
+    for entry in medoid_lookup.values():
+        entry["clusters"].sort(
+            key=lambda cluster: (
+                {"folder": 0, "tag": 1, "embedding": 2}.get(cluster["cluster_type"], 3),
+                cluster.get("label_hint") or "",
+            )
+        )
+
+    return medoid_lookup
 
 
 class LabelEntry(BaseModel):
@@ -335,7 +462,18 @@ def get_gallery(request: Request):
     run_dir = Path(cfg.get("run_dir", "runs"))
     run_path = _latest_run_path(run_dir)
     scores_map: Dict[str, dict] | None = None
+    medoid_map: Dict[str, Dict[str, object]] = {}
+    run_root_path = root
     if run_path is not None:
+        run_meta = _load_run_metadata(run_path)
+        raw_root = run_meta.get("root")
+        if isinstance(raw_root, str) and raw_root:
+            try:
+                run_root_path = Path(raw_root).expanduser()
+            except Exception:
+                run_root_path = root
+        else:
+            run_root_path = root
         scores_file = run_path / "scores.json"
         if scores_file.exists():
             try:
@@ -345,6 +483,7 @@ def get_gallery(request: Request):
                     scores_map = _build_scores_lookup(entries)
             except json.JSONDecodeError:
                 scores_map = None
+        medoid_map = _load_medoid_map(run_path, run_root_path, run_meta)
     gallery = []
     for path in images:
         if not Path(path).exists():
@@ -385,6 +524,22 @@ def get_gallery(request: Request):
         elif selected:
             label_source = "sidecar"
         labels = _build_gallery_labels(candidate_labels, selected, topk, Path(path).name.lower())
+        medoid_info = None
+        try:
+            absolute_path = str(Path(path).resolve())
+            medoid_info = medoid_map.get(absolute_path)
+        except Exception:
+            absolute_path = path
+        if medoid_info is None:
+            try:
+                relative_path = str(Path(path).resolve().relative_to(run_root_path.resolve())).replace("\\", "/")
+                medoid_info = medoid_map.get(relative_path)
+            except Exception:
+                medoid_info = medoid_map.get(path)
+        medoid_clusters = medoid_info.get("clusters", []) if medoid_info else []
+        medoid_folder = medoid_info.get("folder") if medoid_info else ""
+        medoid_cosine = medoid_info.get("cosine_to_centroid") if medoid_info else None
+        medoid_cluster_size = medoid_info.get("cluster_size") if medoid_info else None
         gallery.append(
             {
                 "id": thumb_info["sha1"],
@@ -393,7 +548,11 @@ def get_gallery(request: Request):
                 "thumb": thumb_url,
                 "width": thumb_info.get("width"),
                 "height": thumb_info.get("height"),
-                "medoid": False,
+                "medoid": bool(medoid_info),
+                "medoid_folder": medoid_folder,
+                "medoid_clusters": medoid_clusters,
+                "medoid_cluster_size": medoid_cluster_size,
+                "medoid_cosine_to_centroid": medoid_cosine,
                 "saved": saved,
                 "selected": selected,
                 "label_source": label_source,

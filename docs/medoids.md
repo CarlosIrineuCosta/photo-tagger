@@ -39,3 +39,8 @@ atlanta-trip,embedding,,embedding_1,"3","20240214/IMG_1238.jpg","0.921004"
 Tag clusters inherit the tag as their `label_hint`. Embedding clusters receive
 auto-generated hints (`embedding_1`, `embedding_2`, …) while tracking the member
 indices internally for downstream tooling.
+
+When the API serves gallery data it now marks medoid images and surfaces the
+first three cluster badges (folder, tag, embedding) so reviewers can see why an
+image was chosen without opening the CSV. The enhanced gallery view reuses the
+same metadata, making medoid triage consistent across both experiences.

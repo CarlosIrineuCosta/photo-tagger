@@ -73,3 +73,5 @@
 - [x] Implemented metrics module with Precision@K and stack coverage calculations.
 - [x] Added metrics CLI subcommand for evaluation dataset analysis.
 - [x] Created useIntersectionObserver hook for frontend intersection detection.
+- [x] Created `scripts/prepare_tag_brief.py` for analyzing orphan tags from pipeline exports. [GLM]
+- [x] Enhanced `scripts/prepare_tag_brief.py` with informative output and --include-canonical flag. [GLM]
