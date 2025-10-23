@@ -500,35 +500,69 @@ def cmd_medoids(args: argparse.Namespace) -> None:
         tags_per_index=tag_lookup,
         use_tag_clusters=bool(getattr(args, "tag_aware", False)),
         min_cluster_size=max(1, getattr(args, "cluster_min_size", 3)),
+        cluster_mode=str(getattr(args, "cluster_mode", "simple")).lower(),
+        embedding_cluster_threshold=float(
+            getattr(args, "embedding_threshold", medoid_core.DEFAULT_EMBEDDING_THRESHOLD)
+        ),
+        max_embedding_clusters=getattr(args, "max_embedding_clusters", medoid_core.DEFAULT_MAX_EMBEDDING_CLUSTERS),
     )
 
-    rows: List[Tuple[str, str, str, float, int]] = []
+    rows: List[Tuple[str, str, str, str, int, str, float]] = []
 
-    def _append_row(folder_name: str, medoid_idx: int, cosine: float, cluster_tag: str, cluster_size: int) -> None:
+    def _append_row(
+        folder_name: str,
+        medoid_idx: int,
+        cosine: float,
+        cluster_type: str,
+        cluster_tag: str,
+        label_hint: str,
+        cluster_size: int,
+    ) -> None:
         medoid_path = Path(image_paths[medoid_idx])
         rel_path = _relative_path(medoid_path, root_path)
-        rows.append((folder_name, cluster_tag, rel_path, cosine, cluster_size))
+        rows.append((folder_name, cluster_type, cluster_tag, label_hint, cluster_size, rel_path, cosine))
 
     for folder, info in medoid_info.items():
-        cluster_tag = ""
-        _append_row(folder, info["medoid_index"], info["cosine_to_centroid"], cluster_tag, info.get("size", 0))
-        if getattr(args, "tag_aware", False):
-            for cluster in info.get("clusters", []):
-                _append_row(
-                    folder,
-                    cluster["medoid_index"],
-                    cluster["cosine_to_centroid"],
-                    str(cluster.get("tag", "")),
-                    cluster.get("size", 0),
-                )
+        _append_row(
+            folder,
+            info["medoid_index"],
+            info["cosine_to_centroid"],
+            "folder",
+            "",
+            "",
+            info.get("size", 0),
+        )
+        for cluster in info.get("clusters", []):
+            cluster_type = str(cluster.get("cluster_type", "tag") or "tag")
+            cluster_tag = str(cluster.get("tag", "") or "")
+            label_hint = str(cluster.get("label_hint") or cluster_tag)
+            _append_row(
+                folder,
+                cluster["medoid_index"],
+                cluster["cosine_to_centroid"],
+                cluster_type,
+                cluster_tag,
+                label_hint,
+                cluster.get("size", 0),
+            )
 
     output_path = Path(args.output or _medoids_file(run_path))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["folder", "cluster_tag", "cluster_size", "medoid_rel_path", "cosine_to_centroid"])
-        for folder, cluster_tag, rel_path, cosine, cluster_size in sorted(rows, key=lambda item: (item[0], item[1])):
-            writer.writerow([folder, cluster_tag, cluster_size, rel_path, f"{cosine:.6f}"])
+        writer.writerow(
+            ["folder", "cluster_type", "cluster_tag", "label_hint", "cluster_size", "medoid_rel_path", "cosine_to_centroid"]
+        )
+        for (
+            folder,
+            cluster_type,
+            cluster_tag,
+            label_hint,
+            cluster_size,
+            rel_path,
+            cosine,
+        ) in sorted(rows, key=lambda item: (item[0], 0 if item[1] == "folder" else 1, item[1], item[2], item[3])):
+            writer.writerow([folder, cluster_type, cluster_tag, label_hint, cluster_size, rel_path, f"{cosine:.6f}"])
 
     _update_run_record(run_path, medoids_file=str(output_path))
     _append_log(run_path, f"medoids completed ({len(rows)} folders) in {_duration(start):.2f}s")
@@ -723,6 +757,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         root=args.root,
         tag_aware=getattr(args, "tag_aware_medoids", False),
         cluster_min_size=getattr(args, "medoid_cluster_min_size", 3),
+        cluster_mode=getattr(args, "medoid_cluster_mode", "simple"),
+        embedding_threshold=getattr(args, "medoid_embedding_threshold", medoid_core.DEFAULT_EMBEDDING_THRESHOLD),
+        max_embedding_clusters=getattr(
+            args, "medoid_max_embedding_clusters", medoid_core.DEFAULT_MAX_EMBEDDING_CLUSTERS
+        ),
     )
     cmd_medoids(medoid_args)
 
@@ -807,12 +846,34 @@ def build_parser() -> argparse.ArgumentParser:
     medoid_parser.add_argument("--run-id", required=True, help="Run identifier")
     medoid_parser.add_argument("--output", help="Optional output CSV path")
     medoid_parser.add_argument("--root", help="Root directory (defaults to run metadata)")
-    medoid_parser.add_argument("--tag-aware", action="store_true", help="Enable tag-aware clustering before medoid selection")
+    medoid_parser.add_argument(
+        "--tag-aware",
+        action="store_true",
+        help="Enable tag-aware clustering before medoid selection",
+    )
     medoid_parser.add_argument(
         "--cluster-min-size",
         type=int,
         default=3,
         help="Minimum images per tag cluster when --tag-aware is enabled",
+    )
+    medoid_parser.add_argument(
+        "--cluster-mode",
+        choices=("simple", "hybrid"),
+        default="simple",
+        help="Clustering strategy: simple (tags only) or hybrid (tags plus embedding groups)",
+    )
+    medoid_parser.add_argument(
+        "--embedding-threshold",
+        type=float,
+        default=medoid_core.DEFAULT_EMBEDDING_THRESHOLD,
+        help="Cosine similarity threshold for embedding clusters in hybrid mode",
+    )
+    medoid_parser.add_argument(
+        "--max-embedding-clusters",
+        type=int,
+        default=medoid_core.DEFAULT_MAX_EMBEDDING_CLUSTERS,
+        help="Maximum embedding clusters per folder (0 for unlimited)",
     )
     medoid_parser.set_defaults(func=cmd_medoids)
 
@@ -859,6 +920,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Minimum images required per tag cluster when tag-aware medoids are enabled",
+    )
+    run_parser.add_argument(
+        "--medoid-cluster-mode",
+        choices=("simple", "hybrid"),
+        default="simple",
+        help="Clustering strategy for medoids during run (default: simple)",
+    )
+    run_parser.add_argument(
+        "--medoid-embedding-threshold",
+        type=float,
+        default=medoid_core.DEFAULT_EMBEDDING_THRESHOLD,
+        help="Cosine threshold for embedding clusters in hybrid medoid mode",
+    )
+    run_parser.add_argument(
+        "--medoid-max-embedding-clusters",
+        type=int,
+        default=medoid_core.DEFAULT_MAX_EMBEDDING_CLUSTERS,
+        help="Maximum embedding clusters per folder when computing medoids during run (0 for unlimited)",
     )
     run_parser.add_argument(
         "--export-new-tags",

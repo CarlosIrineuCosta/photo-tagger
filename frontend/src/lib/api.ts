@@ -137,11 +137,18 @@ export type TagGroupSummary = {
   label: string
   path: string
   tags: string[]
+  description?: string | null
+  canonical_count?: number | null
+  supports_bulk?: boolean
 }
 
 export type OrphanTagSummary = {
   name: string
   occurrences: number
+  suggested_group_id?: string | null
+  suggested_label_id?: string | null
+  label_hint?: string | null
+  confidence?: number | null
 }
 
 export type TagSummaryResponse = {
@@ -177,6 +184,7 @@ export type PromoteOrphanTagPayload = {
   tag: string
   target_group?: string
   new_group_label?: string
+  label_id?: string
 }
 
 export type PromoteOrphanTagResponse = {
@@ -187,6 +195,7 @@ export type PromoteOrphanTagResponse = {
   total: number
   created_group: boolean
   occurrences?: number
+  label_id?: string
 }
 
 export async function promoteOrphanTag(payload: PromoteOrphanTagPayload): Promise<PromoteOrphanTagResponse> {
@@ -194,4 +203,59 @@ export async function promoteOrphanTag(payload: PromoteOrphanTagPayload): Promis
     method: "POST",
     body: JSON.stringify(payload),
   })
+}
+
+export type BulkPromoteAction = {
+  tag: string
+  target_group?: string
+  new_group_label?: string
+  label_id?: string
+}
+
+export type BulkPromoteRequest = {
+  actions: BulkPromoteAction[]
+}
+
+export type BulkPromoteResult = {
+  tag: string
+  status: string
+  group?: string
+  group_label?: string
+  total?: number
+  created_group?: boolean
+  occurrences?: number
+  label_id?: string
+  detail?: string
+}
+
+export type BulkPromoteResponse = {
+  results: BulkPromoteResult[]
+}
+
+export async function promoteOrphanTagsBulk(payload: BulkPromoteRequest): Promise<BulkPromoteResponse> {
+  return request<BulkPromoteResponse>("/api/tags/promote/bulk", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export type SuggestGroupResponse = {
+  suggested_group_id: string
+  confidence: number
+  reasoning?: string
+  alternatives: Array<{
+    group_id: string
+    group_label: string
+    confidence: number
+  }>
+  label_id?: string
+}
+
+export async function suggestGroupForTag(tag: string, context?: string): Promise<SuggestGroupResponse> {
+  const params = new URLSearchParams()
+  params.append("tag", tag)
+  if (context) {
+    params.append("context", context)
+  }
+  return request<SuggestGroupResponse>(`/api/tags/suggest-group?${params.toString()}`)
 }
