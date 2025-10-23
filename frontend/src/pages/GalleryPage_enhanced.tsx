@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { CommandBar } from "@/components/CommandBar"
 import { BlockingOverlay } from "@/components/BlockingOverlay"
 import { GalleryGridEnhanced } from "@/components/GalleryGrid_enhanced"
-import { WorkflowSidebar, type WorkflowStep } from "@/components/WorkflowSidebar"
+import { WorkflowSidebar, type WorkflowMessage, type WorkflowStep } from "@/components/WorkflowSidebar"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
   exportData,
@@ -56,7 +56,20 @@ export function GalleryPageEnhanced() {
   const [needsProcessing, setNeedsProcessing] = useState(true)
   const [saving, setSaving] = useState(false)
   const [recentlySaved, setRecentlySaved] = useState<string[]>([])
-  const [blockingMessage, setBlockingMessage] = useState<{ title: string; message?: string } | null>(null)
+  const [blockingMessage, setBlockingMessage] = useState<{ title: string; message?: string; tone?: "default" | "warning" } | null>(null)
+  const [workflowMessages, setWorkflowMessages] = useState<WorkflowMessage[]>([])
+
+  const appendWorkflowMessage = useCallback((text: string, tone: WorkflowMessage["tone"] = "info") => {
+    const id =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`
+    const timestamp = new Date().toLocaleTimeString()
+    setWorkflowMessages((prev) => {
+      const next = [...prev, { id, text, tone, timestamp }]
+      return next.slice(-6)
+    })
+  }, [])
 
   const normalizeList = useCallback((values: string[] | undefined) => {
     if (!values || values.length === 0) {
@@ -94,7 +107,7 @@ export function GalleryPageEnhanced() {
 
   const loadGallery = useCallback(async () => {
     setLoading(true)
-    setBlockingMessage({ title: "Loading gallery…", message: "Fetching latest tags and thumbnails." })
+    setBlockingMessage({ title: "Loading gallery…", message: "Fetching latest tags and thumbnails.", tone: "warning" })
     try {
       const data = await fetchGallery()
 
@@ -116,9 +129,11 @@ export function GalleryPageEnhanced() {
         })
         setItemState(next)
         pushStatus({ message: `Enhanced processing complete for ${enhancedItems.length} images`, level: "success" })
+        appendWorkflowMessage(`Enhanced processing complete for ${enhancedItems.length} images.`, "success")
       } catch (err) {
         console.error("Enhanced processing failed:", err)
         pushStatus({ message: "Enhanced processing failed; using baseline tags.", level: "error" })
+        appendWorkflowMessage("Enhanced processing failed; using baseline tags.", "warning")
         const converted = convertToEnhancedItems(data)
         setItems(converted)
         const fallbackState: Record<string, ItemState> = {}
@@ -139,15 +154,18 @@ export function GalleryPageEnhanced() {
       const allFallback = data.length > 0 && data.every((item) => item.label_source !== "scores")
       if (allFallback) {
         pushStatus({ message: "CLIP scores not found; showing fallback tags", level: "error" })
+        appendWorkflowMessage("CLIP scores missing; showing fallback tags.", "warning")
       }
       setNeedsProcessing(allFallback)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load gallery")
+      const message = err instanceof Error ? err.message : "Failed to load gallery"
+      setError(message)
+      appendWorkflowMessage(`Gallery load failed: ${message}`, "error")
     } finally {
       setLoading(false)
       setBlockingMessage(null)
     }
-  }, [convertToEnhancedItems, normalizeList, pushStatus])
+  }, [appendWorkflowMessage, convertToEnhancedItems, normalizeList, pushStatus])
 
   useEffect(() => {
     void loadGallery()
@@ -424,7 +442,7 @@ export function GalleryPageEnhanced() {
     })
 
     if (toSave.length === 0 && toClear.length === 0) {
-      pushStatus({ message: "No selections to save.", level: "info" })
+      appendWorkflowMessage("No changes detected—nothing to save.", "info")
       return
     }
 
@@ -445,16 +463,19 @@ export function GalleryPageEnhanced() {
           message: `Saved ${savedCount} image${savedCount === 1 ? "" : "s"}.`,
           level: "success",
         })
+        appendWorkflowMessage(`Saved ${savedCount} image${savedCount === 1 ? "" : "s"}.`, "success")
       } catch (err) {
+        const message = `Save failed: ${err instanceof Error ? err.message : String(err)}`
         pushStatus({
-          message: `Save failed: ${err instanceof Error ? err.message : String(err)}`,
+          message,
           level: "error",
         })
+        appendWorkflowMessage(message, "error")
       } finally {
         setSaving(false)
       }
     })()
-  }, [itemMap, itemState, loadGallery, pushStatus])
+  }, [appendWorkflowMessage, itemMap, itemState, loadGallery, pushStatus])
 
   const handleExport = useCallback(
     (mode: "csv" | "sidecars" | "both") => {
@@ -477,23 +498,28 @@ export function GalleryPageEnhanced() {
 
   const handlePageSizeChange = useCallback(
     (size: number) => {
-      setBlockingMessage({ title: "Updating layout…", message: `Loading ${size} images.` })
+      setBlockingMessage({ title: "Updating layout…", message: `Loading ${size} images.`, tone: "warning" })
       setPageSize(size)
       pushStatus({ message: `${size} images per page`, level: "info" })
+      appendWorkflowMessage(`Adjusted gallery page size to ${size} images.`, "info")
       void (async () => {
         await loadGallery()
         setBlockingMessage(null)
       })()
     },
-    [loadGallery, pushStatus]
+    [appendWorkflowMessage, loadGallery, pushStatus]
   )
 
   const handleProcessImages = useCallback(async () => {
     if (processing) {
       return
     }
+    if (!needsProcessing) {
+      appendWorkflowMessage("Gallery is already up to date—no processing required.", "info")
+      return
+    }
     setProcessing(true)
-    setBlockingMessage({ title: "Processing images…", message: "Running pipeline across the selected root." })
+    setBlockingMessage({ title: "Processing images…", message: "Running pipeline across the selected root.", tone: "warning" })
     pushStatus({ message: "Processing images…", level: "info" })
     try {
       const response = await processImages()
@@ -502,6 +528,7 @@ export function GalleryPageEnhanced() {
         message: `All images processed (${runLabel})`,
         level: "success",
       })
+      appendWorkflowMessage(`Processing complete (${runLabel}).`, "success")
       await loadGallery()
       setNeedsProcessing(false)
     } catch (err) {
@@ -520,12 +547,13 @@ export function GalleryPageEnhanced() {
         message: `Processing failed: ${firstLine}`,
         level: "error",
       })
+      appendWorkflowMessage(`Processing failed: ${firstLine}`, "error")
       setNeedsProcessing(true)
     } finally {
       setProcessing(false)
       setBlockingMessage(null)
     }
-  }, [loadGallery, processing, pushStatus])
+  }, [appendWorkflowMessage, loadGallery, needsProcessing, processing, pushStatus])
 
   return (
     <>
@@ -549,7 +577,11 @@ export function GalleryPageEnhanced() {
           tone="warning"
         />
       ) : blockingMessage ? (
-        <BlockingOverlay title={blockingMessage.title} message={blockingMessage.message} />
+        <BlockingOverlay
+          title={blockingMessage.title}
+          message={blockingMessage.message}
+          tone={blockingMessage.tone ?? "warning"}
+        />
       ) : null}
       <div className="border-b border-line/60 bg-panel px-6 py-3">
         <div className="flex items-center justify-between">
@@ -559,7 +591,11 @@ export function GalleryPageEnhanced() {
       <main className="mx-auto flex w-full max-w-[1920px] gap-3 px-3 py-5 lg:px-5 lg:py-6">
         {workflowOpen && !isMobile && (
           <aside className="hidden w-[300px] lg:block">
-            <WorkflowSidebar steps={WORKFLOW_STEPS} className="h-[calc(100vh-190px)]" />
+            <WorkflowSidebar
+              steps={WORKFLOW_STEPS}
+              className="h-[calc(100vh-190px)]"
+              footerMessages={workflowMessages}
+            />
           </aside>
         )}
         <div className="flex-1">
@@ -585,7 +621,11 @@ export function GalleryPageEnhanced() {
               <SheetTitle className="text-base text-foreground">Workflow</SheetTitle>
             </SheetHeader>
             <div className="px-4 py-4">
-              <WorkflowSidebar steps={WORKFLOW_STEPS} className="h-[calc(100vh-200px)] border-none bg-transparent p-0 shadow-none" />
+              <WorkflowSidebar
+                steps={WORKFLOW_STEPS}
+                className="h-[calc(100vh-200px)] border-none bg-transparent p-0 shadow-none"
+                footerMessages={workflowMessages}
+              />
             </div>
           </SheetContent>
         </Sheet>

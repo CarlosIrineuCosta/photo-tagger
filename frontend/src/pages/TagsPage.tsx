@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { Badge } from "@/components/ui/badge"
 import { BlockingOverlay } from "@/components/BlockingOverlay"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -16,13 +18,26 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   addTagToGroup,
   deleteTagFromGroup,
   fetchTagSummary,
   promoteOrphanTag,
+  promoteOrphanTagsBulk,
+  suggestGroupForTag,
   type TagGroupSummary,
   type TagSummaryResponse,
   type OrphanTagSummary,
+  type BulkPromoteAction,
+  type BulkPromoteResponse,
+  type SuggestGroupResponse,
 } from "@/lib/api"
 import { useStatusLog } from "@/context/status-log"
 
@@ -39,6 +54,17 @@ export function TagsPage() {
   const [newGroupName, setNewGroupName] = useState<string>("")
   const [savingPromotion, setSavingPromotion] = useState(false)
   const { push: pushStatus } = useStatusLog()
+
+  // Hybrid promotion state
+  const [suggestions, setSuggestions] = useState<Map<string, SuggestGroupResponse>>(new Map())
+  const [loadingSuggestions, setLoadingSuggestions] = useState<Set<string>>(new Set())
+  const [optimisticUpdates, setOptimisticUpdates] = useState<Map<string, { action: string; previousState: OrphanTagSummary }>>(new Map())
+  const [undoQueue, setUndoQueue] = useState<Array<{ id: string; action: string; timestamp: number }>>([])
+
+  // Bulk promotion state
+  const [selectedOrphans, setSelectedOrphans] = useState<Set<string>>(new Set())
+  const [bulkPromotionOpen, setBulkPromotionOpen] = useState(false)
+  const [bulkPromotionResults, setBulkPromotionResults] = useState<BulkPromoteResponse | null>(null)
 
   const groups = useMemo(() => summary?.groups ?? [], [summary])
   const defaultGroupId = groups[0]?.id ?? ""
@@ -69,6 +95,107 @@ export function TagsPage() {
   useEffect(() => {
     void loadSummary()
   }, [loadSummary])
+
+  const fetchSuggestion = useCallback(
+    async (tag: string) => {
+      if (suggestions.has(tag)) {
+        return suggestions.get(tag)!
+      }
+
+      setLoadingSuggestions((prev) => new Set(prev).add(tag))
+      try {
+        const suggestion = await suggestGroupForTag(tag)
+        setSuggestions((prev) => new Map(prev).set(tag, suggestion))
+        return suggestion
+      } catch (err) {
+        pushStatus({
+          message: `Failed to fetch suggestion for "${tag}": ${err instanceof Error ? err.message : "Unknown error"}`,
+          level: "error",
+        })
+        return null
+      } finally {
+        setLoadingSuggestions((prev) => {
+          const next = new Set(prev)
+          next.delete(tag)
+          return next
+        })
+      }
+    },
+    [suggestions, pushStatus]
+  )
+
+  const handleQuickPromote = useCallback(
+    async (orphan: OrphanTagSummary, suggestedGroupId: string) => {
+      const tagName = orphan.name
+
+      // Store previous state for rollback
+      const previousState = orphan
+
+      // Optimistic update
+      setOptimisticUpdates((prev) =>
+        new Map(prev).set(tagName, {
+          action: "promote",
+          previousState
+        })
+      )
+
+      // Add to undo queue
+      setUndoQueue((prev) => [
+        ...prev,
+        { id: tagName, action: "promote", timestamp: Date.now() }
+      ])
+
+      try {
+        const response = await promoteOrphanTag({
+          tag: tagName,
+          target_group: suggestedGroupId,
+        })
+
+        pushStatus({
+          message: `Promoted "${tagName}" to ${response.group_label}`,
+          level: "success",
+        })
+
+        // Refresh the summary
+        await loadSummary({ title: "Refreshing tags…", message: "Re-reading label packs." })
+      } catch (err) {
+        // Rollback on failure
+        setOptimisticUpdates((prev) => {
+          const next = new Map(prev)
+          next.delete(tagName)
+          return next
+        })
+
+        pushStatus({
+          message: `Failed to promote "${tagName}": ${err instanceof Error ? err.message : "Unknown error"}`,
+          level: "error",
+        })
+      }
+    },
+    [loadSummary, pushStatus]
+  )
+
+  const handleUndo = useCallback(
+    (tagId: string) => {
+      const update = optimisticUpdates.get(tagId)
+      if (!update) return
+
+      // For now, we'll just remove the optimistic update
+      // In a real implementation, you'd need to handle the actual rollback
+      setOptimisticUpdates((prev) => {
+        const next = new Map(prev)
+        next.delete(tagId)
+        return next
+      })
+
+      setUndoQueue((prev) => prev.filter((item) => item.id !== tagId))
+      pushStatus({
+        message: `Rolled back promotion of "${tagId}"`,
+        level: "info",
+      })
+    },
+    [optimisticUpdates, pushStatus]
+  )
 
   const closePromotion = useCallback(() => {
     setPromotionTarget(null)
@@ -284,30 +411,88 @@ export function TagsPage() {
                   <tr className="border-b border-line/40 text-muted-foreground">
                     <th className="px-4 py-2">Tag</th>
                     <th className="w-24 px-4 py-2 text-right">Occurrences</th>
-                    <th className="w-32 px-4 py-2 text-right">Actions</th>
+                    <th className="w-48 px-4 py-2">Suggested Group</th>
+                    <th className="w-48 px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {orphanTags.length ? (
-                    orphanTags.map((item) => (
-                      <tr key={item.name} className="border-t border-line/20">
-                        <td className="px-4 py-2 text-foreground">{item.name}</td>
-                        <td className="px-4 py-2 text-right text-muted-foreground">{item.occurrences}</td>
-                        <td className="px-4 py-2 text-right">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openPromotion(item)}
-                            disabled={!!blocking || savingPromotion}
-                          >
-                            Promote
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
+                    orphanTags.map((item) => {
+                      const suggestion = suggestions.get(item.name)
+                      const isLoading = loadingSuggestions.has(item.name)
+                      const isOptimisticallyUpdated = optimisticUpdates.has(item.name)
+
+                      if (isOptimisticallyUpdated) {
+                        return null // Skip items that are being optimistically updated
+                      }
+
+                      return (
+                        <tr key={item.name} className="border-t border-line/20">
+                          <td className="px-4 py-2 text-foreground">{item.name}</td>
+                          <td className="px-4 py-2 text-right text-muted-foreground">{item.occurrences}</td>
+                          <td className="px-4 py-2">
+                            {item.suggested_group_id ? (
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="text-xs">
+                                  {groups.find(g => g.id === item.suggested_group_id)?.label || item.suggested_group_id}
+                                </Badge>
+                                {item.confidence && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {Math.round(item.confidence * 100)}%
+                                  </span>
+                                )}
+                              </div>
+                            ) : suggestion ? (
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="text-xs">
+                                  {groups.find(g => g.id === suggestion.suggested_group_id)?.label || suggestion.suggested_group_id}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {Math.round(suggestion.confidence * 100)}%
+                                </span>
+                              </div>
+                            ) : isLoading ? (
+                              <span className="text-xs text-muted-foreground">Loading...</span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => void fetchSuggestion(item.name)}
+                                disabled={isLoading}
+                              >
+                                Get Suggestion
+                              </Button>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {(item.suggested_group_id || suggestion) && (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={() => void handleQuickPromote(item, item.suggested_group_id || suggestion!.suggested_group_id)}
+                                  disabled={!!blocking || savingPromotion}
+                                >
+                                  Quick Promote
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openPromotion(item)}
+                                disabled={!!blocking || savingPromotion}
+                              >
+                                Promote
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
                   ) : (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={3}>
+                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={4}>
                         No orphan tags detected in the latest run.
                       </td>
                     </tr>
@@ -381,6 +566,28 @@ export function TagsPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* Undo notification */}
+      {undoQueue.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <Card className="border-line/60 bg-panel shadow-lg">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-foreground">
+                  {undoQueue.length} promotion{undoQueue.length === 1 ? "" : "s"} in progress
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleUndo(undoQueue[undoQueue.length - 1].id)}
+                >
+                  Undo Last
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

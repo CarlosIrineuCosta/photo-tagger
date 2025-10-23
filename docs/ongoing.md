@@ -11,6 +11,12 @@
 - [x] Core: introduce tag-aware clustering toggle in `app/core/medoid.py` and cover with smoke test.
 - [x] Align blocking overlays with warning tone across processing states.
 - [x] Skip redundant gallery processing when no updates are pending.
+- [x] Surface medoid cluster metadata across API + gallery UI and add medoid helper script.
+- [x] Document medoid review workflow for operators (`docs/user_guide/medoids_workflow.md`).
+- [x] Gallery UI: stream workflow status messages into sidebar with tone-aware styling.
+- [ ] Tags page: finish quick-promote actions driven by tag suggestions (render CTA, countdown undo, rollback on failure).
+- [ ] Tags page: expose bulk promotion drawer backed by multi-select table and `/api/tags/promote/bulk`.
+- [ ] Tags page: surface graduation ledger metadata (pending graduations, audit trail) in review panels.
 
 ### GLM Assist (trigger after core changes are ready)
 
@@ -18,9 +24,9 @@
 - [x] Update `app/cli/tagger.py` with `metrics` subcommand using the new utilities.
 - [x] Draft `docs/metrics.md` documenting metric definitions, dataset prep, and CLI usage.
 - [x] Create `frontend/src/hooks/useIntersectionObserver.ts` for intersection observation.
-- [ ] Wire hybrid promotion UI on `TagsPage`: fetch suggestion metadata, surface single-click promote actions, and implement optimistic updates with rollback on failure.
-- [ ] Build bulk promotion drawer with multi-select table, status toasts, and retry queue using the `/api/tags/promote/bulk` endpoint.
-- [ ] Add graduation review panel that reads `pending_graduations`, enables grouping by canonical label, and exposes resolve/skip flows persisted to the manifest ledger.
+- [ ] Wire hybrid promotion UI on `TagsPage`: fetch suggestion metadata, surface single-click promote actions (button + summary badges), and implement optimistic updates with undo countdown + rollback on failure.
+- [ ] Build bulk promotion drawer with multi-select table, queued execution, status toasts, and retry queue using the `/api/tags/promote/bulk` endpoint.
+- [ ] Add graduation review panel that reads `pending_graduations`, groups by canonical label, and exposes resolve/skip flows persisted to the manifest ledger (include ledger call + optimistic UI).
 
 ### Operator / QA (run once UI shipping)
 
@@ -37,6 +43,8 @@
 - [x] Design clustering strategy for medoids (per dominant tag/embed cluster) and prototype on mixed-content folder.
 - [ ] Label quality – iterate structured label pack (`labels/`), maintain evaluation set, and log precision/recall after each tweak.
 - [x] Evolve medoid selection with tag/embedding clustering before medoid choice for mixed folders.
+- [ ] Expose promotion ledger + pending graduations via API and UI surfaces.
+- [ ] Automate medoid regeneration during `tagger run` and persist summary stats for dashboards.
 - [ ] Review stack controls – expose per-image `k`, stack progress indicators, and CLI helpers for scripted approvals/exclusions.
 - [ ] Draft automated pipeline surfacing new user tags for review/export (CSV of recent additions, optional delete flow).
 - [ ] Outline CLI automation for review state (init, approve, exclude) for batch QA scripting.
@@ -75,3 +83,4 @@
 - [x] Created useIntersectionObserver hook for frontend intersection detection.
 - [x] Created `scripts/prepare_tag_brief.py` for analyzing orphan tags from pipeline exports. [GLM]
 - [x] Enhanced `scripts/prepare_tag_brief.py` with informative output and --include-canonical flag. [GLM]
+- [x] Extended workflow sidebar with scrollable status log to track gallery processing events.
