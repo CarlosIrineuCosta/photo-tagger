@@ -271,3 +271,44 @@ export async function suggestGroupForTag(tag: string, context?: string): Promise
   }
   return request<SuggestGroupResponse>(`/api/tags/suggest-group?${params.toString()}`)
 }
+
+export type GraduationEntry = {
+  label_id: string
+  canonical_label: string
+  group: string
+  promotions: Array<{
+    tag: string
+    label_id?: string
+    group: string
+    group_label: string
+    created_group?: boolean
+    occurrences?: number
+    status: string
+    promoted_at?: string
+    resolved_at?: string
+  }>
+  count: number
+}
+
+export type GraduationsResponse = {
+  graduations: GraduationEntry[]
+  stats: {
+    pending: number
+    resolved: number
+  }
+}
+
+export async function fetchGraduations(): Promise<GraduationsResponse> {
+  return request<GraduationsResponse>("/api/tags/graduations")
+}
+
+export async function resolveGraduation(labelId: string, action: "resolve" | "skip" = "resolve"): Promise<{
+  status: string
+  label_id: string
+  action: string
+  updated_count: number
+}> {
+  return request(`/api/tags/graduations/${labelId}/resolve?action=${action}`, {
+    method: "POST",
+  })
+}

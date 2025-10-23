@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.6,<2.13",
     "pyarrow>=14,<19",
     "pyyaml>=6,<7",
+    "rawpy>=0.24,<0.26",
     "scikit-learn>=1.4,<1.8",
     "scipy>=1.11,<1.16",
     "torch==2.2.2",
@@ -23,7 +24,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-raw = ["rawpy>=0.24,<0.26"]
 people = ["torchvision==0.17.2"]
 # ocr = ["pytesseract>=0.3.10,<0.4"]
 # ai_caption = [

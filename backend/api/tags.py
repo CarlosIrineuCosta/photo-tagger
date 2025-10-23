@@ -109,8 +109,6 @@ class TagSummaryResponse(BaseModel):
         name: str
         occurrences: int
         suggested_group_id: str | None = Field(default=None, description="ML-suggested target group")
-        suggestion_confidence: float | None = Field(default=None, description="Confidence score for suggestion")
-        suggested_group_id: str | None = None
         suggested_label_id: str | None = None
         label_hint: str | None = None
         confidence: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -469,6 +467,101 @@ def suggest_group_for_tag(tag: str, context: str | None = None) -> SuggestGroupR
         alternatives=alternatives,
         label_id=label_id
     )
+
+
+@router.get("/graduations")
+def get_pending_graduations() -> Dict[str, object]:
+    """Get pending graduations from the label pack manifest."""
+    config = _load_config()
+    label_dir = _resolve_label_dir(config)
+
+    try:
+        pack = label_pack_core.load_label_pack(label_dir)
+    except Exception:
+        return {"graduations": [], "stats": {"pending": 0, "resolved": 0}}
+
+    # Group graduations by canonical label
+    graduations_by_label: Dict[str, List[Dict[str, object]]] = defaultdict(list)
+
+    for promotion in pack.promotions:
+        status = promotion.get("status", "pending")
+        if status == "resolved":
+            continue
+
+        # Group by the canonical label if available, otherwise by the promoted tag
+        group_key = promotion.get("label_id") or promotion.get("tag", "")
+        graduations_by_label[group_key].append(promotion)
+
+    # Convert to response format
+    result = []
+    for label_id, promotions in graduations_by_label.items():
+        # Get label metadata
+        label_meta = pack.label_metadata.get(label_id)
+        canonical_label = label_meta.text_label if label_meta else label_id
+
+        result.append({
+            "label_id": label_id,
+            "canonical_label": canonical_label,
+            "group": label_meta.group if label_meta else "",
+            "promotions": promotions,
+            "count": len(promotions)
+        })
+
+    # Sort by count (most promotions first)
+    result.sort(key=lambda x: x["count"], reverse=True)
+
+    stats = {
+        "pending": sum(1 for p in pack.promotions if p.get("status", "pending") != "resolved"),
+        "resolved": sum(1 for p in pack.promotions if p.get("status", "pending") == "resolved")
+    }
+
+    return {"graduations": result, "stats": stats}
+
+
+@router.post("/graduations/{label_id}/resolve")
+def resolve_graduation(label_id: str, action: str = "resolve") -> Dict[str, object]:
+    """Resolve or skip a graduation for a specific label."""
+    config = _load_config()
+    label_dir = _resolve_label_dir(config)
+    manifest_path = label_dir / MANIFEST_FILENAME
+
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="No manifest found")
+
+    data = _load_yaml(manifest_path)
+    if not isinstance(data, dict):
+        data = {}
+
+    promotions = data.get("promotions", [])
+    if not isinstance(promotions, list):
+        promotions = []
+
+    # Update promotions for this label
+    updated_count = 0
+    for promotion in promotions:
+        if promotion.get("label_id") == label_id:
+            promotion["status"] = "resolved" if action == "resolve" else "skipped"
+            promotion["resolved_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            updated_count += 1
+
+    if updated_count == 0:
+        raise HTTPException(status_code=404, detail="No pending graduations found for this label")
+
+    # Save the updated manifest
+    data["promotions"] = promotions
+    try:
+        import yaml
+        with manifest_path.open("w", encoding="utf-8") as handle:
+            yaml.safe_dump(data, handle, sort_keys=False)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save manifest: {exc}")
+
+    return {
+        "status": "success",
+        "label_id": label_id,
+        "action": action,
+        "updated_count": updated_count
+    }
 
 
 def _fallback_suggestion(tag: str) -> str:

@@ -1,32 +1,39 @@
-portrait
-headshot
+abstract
+adventure
+ai image
+ai photograph
+ai-image
+architecture photography
+art photo
+black and white
+bokeh
+boudoir
 candid
-street photography
-travel photography
-nude photography
-product photography
-photojournalism
+color study
 documentary
-fine art
-studio shot
 editorial
 fashion photography
-
-landscape photography
-architecture photography
-macro photography
-
-black and white
-color study
-high contrast
-low key
-high key
-minimalism
-abstract
-
-long exposure
-motion blur
-bokeh
 film look
-vintage look
+fine art
+food photography
+headshot
+high contrast
+high key
+illustration
+landscape photography
+lingerie
+long exposure
+low key
+macro photography
+minimalism
+motion blur
+night
+nude photography
+photojournalism
 polaroid look
+portrait
+product photography
+street photography
+studio shot
+travel photography
+vintage look

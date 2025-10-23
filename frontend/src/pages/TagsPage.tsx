@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import type { CheckedState } from "@radix-ui/react-checkbox"
 
 import { Badge } from "@/components/ui/badge"
 import { BlockingOverlay } from "@/components/BlockingOverlay"
@@ -32,12 +33,16 @@ import {
   promoteOrphanTag,
   promoteOrphanTagsBulk,
   suggestGroupForTag,
+  fetchGraduations,
+  resolveGraduation,
   type TagGroupSummary,
   type TagSummaryResponse,
   type OrphanTagSummary,
   type BulkPromoteAction,
   type BulkPromoteResponse,
   type SuggestGroupResponse,
+  type GraduationsResponse,
+  type GraduationEntry,
 } from "@/lib/api"
 import { useStatusLog } from "@/context/status-log"
 
@@ -65,6 +70,12 @@ export function TagsPage() {
   const [selectedOrphans, setSelectedOrphans] = useState<Set<string>>(new Set())
   const [bulkPromotionOpen, setBulkPromotionOpen] = useState(false)
   const [bulkPromotionResults, setBulkPromotionResults] = useState<BulkPromoteResponse | null>(null)
+  const [bulkOverrides, setBulkOverrides] = useState<Map<string, string>>(new Map())
+
+  // Graduation review state
+  const [graduations, setGraduations] = useState<GraduationsResponse | null>(null)
+  const [graduationsOpen, setGraduationsOpen] = useState(false)
+  const [loadingGraduations, setLoadingGraduations] = useState(false)
 
   const groups = useMemo(() => summary?.groups ?? [], [summary])
   const defaultGroupId = groups[0]?.id ?? ""
@@ -197,6 +208,122 @@ export function TagsPage() {
     [optimisticUpdates, pushStatus]
   )
 
+  const handleBulkPromote = useCallback(
+    async (actions: BulkPromoteAction[]) => {
+      if (actions.length === 0) {
+        pushStatus({ message: "No tags selected for promotion", level: "info" })
+        return
+      }
+
+      setBlocking({ title: "Bulk promoting tags…", message: `Processing ${actions.length} tags.` })
+
+      try {
+        const response = await promoteOrphanTagsBulk({ actions })
+        setBulkPromotionResults(response)
+
+        const successful = response.results.filter(r => r.status === "promoted").length
+        const failed = response.results.filter(r => r.status === "error").length
+
+        pushStatus({
+          message: `Bulk promotion complete: ${successful} succeeded, ${failed} failed`,
+          level: failed > 0 ? "error" : "success",
+        })
+
+        // Clear selection and refresh
+        setSelectedOrphans(new Set())
+        await loadSummary({ title: "Refreshing tags…", message: "Re-reading label packs." })
+      } catch (err) {
+        pushStatus({
+          message: `Bulk promotion failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+          level: "error",
+        })
+      } finally {
+        setBlocking(null)
+      }
+    },
+    [loadSummary, pushStatus]
+  )
+
+  const handleSelectOrphan = useCallback(
+    (tag: string, checked: CheckedState) => {
+      const isChecked = checked === true
+      setSelectedOrphans((prev) => {
+        const next = new Set(prev)
+        if (isChecked) {
+          next.add(tag)
+        } else {
+          next.delete(tag)
+        }
+        return next
+      })
+      if (!isChecked) {
+        setBulkOverrides((prev) => {
+          if (!prev.has(tag)) {
+            return prev
+          }
+          const next = new Map(prev)
+          next.delete(tag)
+          return next
+        })
+      }
+    },
+    []
+  )
+
+  const handleSelectAllOrphans = useCallback(
+    (checked: CheckedState) => {
+      const isChecked = checked === true
+      const currentOrphanTags = summary?.orphan_tags ?? []
+      if (isChecked) {
+        setSelectedOrphans(new Set(currentOrphanTags.map(tag => tag.name)))
+      } else {
+        setSelectedOrphans(new Set())
+        setBulkOverrides(new Map())
+      }
+    },
+    [summary?.orphan_tags]
+  )
+
+  const loadGraduations = useCallback(
+    async () => {
+      setLoadingGraduations(true)
+      try {
+        const data = await fetchGraduations()
+        setGraduations(data)
+      } catch (err) {
+        pushStatus({
+          message: `Failed to load graduations: ${err instanceof Error ? err.message : "Unknown error"}`,
+          level: "error",
+        })
+      } finally {
+        setLoadingGraduations(false)
+      }
+    },
+    [pushStatus]
+  )
+
+  const handleResolveGraduation = useCallback(
+    async (labelId: string, action: "resolve" | "skip" = "resolve") => {
+      try {
+        const response = await resolveGraduation(labelId, action)
+        pushStatus({
+          message: `${action === "resolve" ? "Resolved" : "Skipped"} graduation for ${response.updated_count} tag${response.updated_count === 1 ? "" : "s"}`,
+          level: "success",
+        })
+
+        // Reload graduations and summary
+        await loadGraduations()
+        await loadSummary({ title: "Refreshing tags…", message: "Re-reading label packs." })
+      } catch (err) {
+        pushStatus({
+          message: `Failed to ${action} graduation: ${err instanceof Error ? err.message : "Unknown error"}`,
+          level: "error",
+        })
+      }
+    },
+    [loadGraduations, loadSummary, pushStatus]
+  )
+
   const closePromotion = useCallback(() => {
     setPromotionTarget(null)
     setNewGroupName("")
@@ -309,6 +436,46 @@ export function TagsPage() {
   const orphanTags = useMemo(() => summary?.orphan_tags ?? [], [summary])
   const stats = summary?.stats ?? {}
 
+  useEffect(() => {
+    const allowed = new Set(orphanTags.map((item) => item.name))
+    setSelectedOrphans((prev) => {
+      let mutated = false
+      const next = new Set<string>()
+      prev.forEach((tag) => {
+        if (allowed.has(tag)) {
+          next.add(tag)
+        } else {
+          mutated = true
+        }
+      })
+      if (!mutated && next.size === prev.size) {
+        return prev
+      }
+      return next
+    })
+    setBulkOverrides((prev) => {
+      let mutated = false
+      const next = new Map<string, string>()
+      prev.forEach((value, key) => {
+        if (allowed.has(key)) {
+          next.set(key, value)
+        } else {
+          mutated = true
+        }
+      })
+      if (!mutated && next.size === prev.size) {
+        return prev
+      }
+      return next
+    })
+  }, [orphanTags])
+
+  useEffect(() => {
+    if (!bulkPromotionOpen) {
+      setBulkPromotionResults(null)
+    }
+  }, [bulkPromotionOpen])
+
   return (
     <div className="mx-auto w-full max-w-[1920px] px-4 py-6 lg:px-6">
       {blocking ? <BlockingOverlay title={blocking.title} message={blocking.message} tone="warning" /> : null}
@@ -399,9 +566,21 @@ export function TagsPage() {
       <div className="mt-6 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Orphan Tags</h2>
-          <p className="text-xs text-muted-foreground">
-            Tags seen in recent reviews but not yet part of the structured pack.
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-muted-foreground">
+              Tags seen in recent reviews but not yet part of the structured pack.
+            </p>
+            {orphanTags.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBulkPromotionOpen(true)}
+                disabled={!!blocking}
+              >
+                Bulk Promote ({selectedOrphans.size})
+              </Button>
+            )}
+          </div>
         </div>
         <Card className="border-line/60 bg-panel">
           <CardContent className="p-0">
@@ -409,6 +588,12 @@ export function TagsPage() {
               <table className="w-full table-fixed border-collapse text-left text-sm">
                 <thead className="sticky top-0 bg-panel-2">
                   <tr className="border-b border-line/40 text-muted-foreground">
+                    <th className="w-12 px-2 py-2">
+                      <Checkbox
+                        checked={selectedOrphans.size === orphanTags.length && orphanTags.length > 0}
+                        onCheckedChange={handleSelectAllOrphans}
+                      />
+                    </th>
                     <th className="px-4 py-2">Tag</th>
                     <th className="w-24 px-4 py-2 text-right">Occurrences</th>
                     <th className="w-48 px-4 py-2">Suggested Group</th>
@@ -428,6 +613,12 @@ export function TagsPage() {
 
                       return (
                         <tr key={item.name} className="border-t border-line/20">
+                          <td className="px-2 py-2">
+                            <Checkbox
+                              checked={selectedOrphans.has(item.name)}
+                              onCheckedChange={(checked) => handleSelectOrphan(item.name, checked)}
+                            />
+                          </td>
                           <td className="px-4 py-2 text-foreground">{item.name}</td>
                           <td className="px-4 py-2 text-right text-muted-foreground">{item.occurrences}</td>
                           <td className="px-4 py-2">
@@ -492,7 +683,7 @@ export function TagsPage() {
                     })
                   ) : (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={4}>
+                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={5}>
                         No orphan tags detected in the latest run.
                       </td>
                     </tr>
@@ -503,6 +694,31 @@ export function TagsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Graduation Review Panel */}
+      {stats.pending_graduations && stats.pending_graduations > 0 && (
+        <div className="mt-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-foreground">Graduation Review</h2>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-muted-foreground">
+                {stats.pending_graduations} pending graduation{stats.pending_graduations === 1 ? "" : "s"}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setGraduationsOpen(true)
+                  void loadGraduations()
+                }}
+                disabled={!!blocking}
+              >
+                Review Graduations
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Sheet open={!!promotionTarget} onOpenChange={handlePromotionOpenChange}>
         <SheetContent side="right" className="w-full sm:max-w-lg">
@@ -588,6 +804,240 @@ export function TagsPage() {
           </Card>
         </div>
       )}
+
+      {/* Bulk Promotion Drawer */}
+      <Sheet open={bulkPromotionOpen} onOpenChange={setBulkPromotionOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>Bulk Promotion</SheetTitle>
+            <SheetDescription>
+              Promote multiple orphan tags to their suggested groups or choose custom groups.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                {selectedOrphans.size} tag{selectedOrphans.size === 1 ? "" : "s"} selected
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleSelectAllOrphans(true)}
+                disabled={!!blocking}
+              >
+                Select All
+              </Button>
+            </div>
+
+            <ScrollArea className="h-96 rounded-md border border-line/40">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tag</TableHead>
+                    <TableHead>Occurrences</TableHead>
+                    <TableHead>Target Group</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from(selectedOrphans).map((tagName) => {
+                    const orphan = orphanTags.find(t => t.name === tagName)
+                    if (!orphan) return null
+
+                    const suggestedGroup = orphan.suggested_group_id || suggestions.get(tagName)?.suggested_group_id
+                    const fallbackGroup = defaultGroupId || groups[0]?.id || ""
+                    const currentGroup = bulkOverrides.get(tagName) || suggestedGroup || fallbackGroup
+
+                    return (
+                      <TableRow key={tagName}>
+                        <TableCell className="font-medium">{tagName}</TableCell>
+                        <TableCell>{orphan.occurrences}</TableCell>
+                        <TableCell>
+                          <select
+                            className="w-full rounded-md border border-line/40 bg-background px-2 py-1 text-sm"
+                            value={currentGroup}
+                            disabled={!!blocking || groups.length === 0}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              setBulkOverrides((prev) => {
+                                const next = new Map(prev)
+                                if (value) {
+                                  next.set(tagName, value)
+                                } else {
+                                  next.delete(tagName)
+                                }
+                                return next
+                              })
+                            }}
+                          >
+                            {groups.map((group) => (
+                              <option key={group.id} value={group.id}>
+                                {group.label}
+                              </option>
+                            ))}
+                          </select>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+
+            {bulkPromotionResults && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Results</h4>
+                <div className="rounded-md border border-line/40 p-3">
+                  <div className="space-y-1 text-sm">
+                    {bulkPromotionResults.results.map((result, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <span className="text-foreground">{result.tag}</span>
+                        <Badge
+                          variant={result.status === "promoted" ? "default" : "destructive"}
+                          className="text-xs"
+                        >
+                          {result.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <SheetFooter className="mt-6">
+            <Button variant="outline" onClick={() => setBulkPromotionOpen(false)} disabled={!!blocking}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const missingTargets: string[] = []
+                const actions: BulkPromoteAction[] = []
+                Array.from(selectedOrphans).forEach((tagName) => {
+                  const orphan = orphanTags.find((t) => t.name === tagName)
+                  if (!orphan) {
+                    return
+                  }
+                  const suggestion = suggestions.get(tagName)
+                  const fallbackGroup = defaultGroupId || groups[0]?.id || ""
+                  const targetGroup = bulkOverrides.get(tagName) || orphan.suggested_group_id || suggestion?.suggested_group_id || fallbackGroup
+                  if (!targetGroup) {
+                    missingTargets.push(tagName)
+                    return
+                  }
+                  const action: BulkPromoteAction = {
+                    tag: tagName,
+                    target_group: targetGroup,
+                  }
+                  const labelId = orphan.suggested_label_id || suggestion?.label_id
+                  if (labelId) {
+                    action.label_id = labelId
+                  }
+                  actions.push(action)
+                })
+                if (missingTargets.length) {
+                  pushStatus({
+                    message: `Select a target group for: ${missingTargets.join(", ")}`,
+                    level: "info",
+                  })
+                  return
+                }
+                void handleBulkPromote(actions)
+              }}
+              disabled={!!blocking || selectedOrphans.size === 0}
+            >
+              Promote {selectedOrphans.size} Tag{selectedOrphans.size === 1 ? "" : "s"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Graduation Review Drawer */}
+      <Sheet open={graduationsOpen} onOpenChange={setGraduationsOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl">
+          <SheetHeader>
+            <SheetTitle>Graduation Review</SheetTitle>
+            <SheetDescription>
+              Review and resolve pending tag graduations grouped by canonical label.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            {loadingGraduations ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-muted-foreground">Loading graduations...</span>
+              </div>
+            ) : graduations ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    {graduations.graduations.length} label{graduations.graduations.length === 1 ? "" : "s"} with pending graduations
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {graduations.stats.pending} pending · {graduations.stats.resolved} resolved
+                  </span>
+                </div>
+
+                <ScrollArea className="h-96 rounded-md border border-line/40">
+                  <div className="space-y-4 p-4">
+                    {graduations.graduations.map((entry) => (
+                      <Card key={entry.label_id} className="border-line/60 bg-panel">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <CardTitle className="text-base">{entry.canonical_label}</CardTitle>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.group} · {entry.count} promotion{entry.count === 1 ? "" : "s"}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void handleResolveGraduation(entry.label_id, "skip")}
+                                disabled={!!blocking}
+                              >
+                                Skip
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => void handleResolveGraduation(entry.label_id, "resolve")}
+                                disabled={!!blocking}
+                              >
+                                Resolve
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">Promoted Tags:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {entry.promotions.map((promo, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {promo.tag}
+                                  {promo.occurrences && ` (${promo.occurrences})`}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </>
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-muted-foreground">No graduations found</span>
+              </div>
+            )}
+          </div>
+          <SheetFooter className="mt-6">
+            <Button variant="outline" onClick={() => setGraduationsOpen(false)} disabled={!!blocking}>
+              Close
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

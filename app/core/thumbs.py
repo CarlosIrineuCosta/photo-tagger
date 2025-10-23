@@ -6,6 +6,23 @@ from typing import List, Sequence
 
 from PIL import Image
 
+try:
+    import rawpy
+except Exception:  # pragma: no cover - rawpy is optional at import time
+    rawpy = None
+
+RAW_EXTENSIONS = {
+    ".dng",
+    ".nef",
+    ".arw",
+    ".cr2",
+    ".cr3",
+    ".rw2",
+    ".orf",
+    ".raf",
+    ".srw",
+}
+
 DEFAULT_CACHE_ROOT = Path("thumb_cache")
 DEFAULT_MAX_EDGE = 512
 
@@ -66,9 +83,26 @@ def build_thumbnail(
         with Image.open(thumb_path) as thumb:
             width, height = thumb.size
     else:
-        with Image.open(image_path) as original:
-            original = original.convert("RGB")
-            resized = _resize_image(original, max_edge)
+        ext = image_path.suffix.lower()
+        if ext in RAW_EXTENSIONS:
+            if rawpy is None:
+                raise RuntimeError(
+                    f"rawpy is required to process RAW files (missing dependency for {image_path})"
+                )
+            with rawpy.imread(str(image_path)) as raw:
+                rgb = raw.postprocess(
+                    use_auto_wb=True,
+                    no_auto_bright=True,
+                    output_color=rawpy.ColorSpace.sRGB,
+                    output_bps=8,
+                )
+                original = Image.fromarray(rgb)
+        else:
+            original = Image.open(image_path)
+
+        with original:
+            converted = original.convert("RGB")
+            resized = _resize_image(converted, max_edge)
             width, height = resized.size
             resized.save(thumb_path, format="JPEG", quality=90, optimize=True)
 

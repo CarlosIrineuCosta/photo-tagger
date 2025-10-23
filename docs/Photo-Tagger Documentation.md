@@ -82,3 +82,23 @@ The Photo Tagger system has been refactored into a streamlined React + FastAPI +
 ## Conclusion
 
 The documentation has been comprehensively updated to reflect the new React + FastAPI + CLI workflow while preserving important historical documents. The new documentation provides clearer guidance for both operators and developers, with detailed technical references and practical examples.
+
+---
+
+## 2025-10-23 – Tags Page Documentation & QA Collateral
+
+### Highlights
+- Expanded `docs/user_guide.md` with full CLI reference, gallery/tags walkthroughs, medoids review, RAW ingestion tips, and tag promotion workflows.
+- Added dedicated QA assets for the Tags page revamp:
+  - `docs/tags_page_qa_checklist.md` covering functional, UX, performance, accessibility, and regression scenarios.
+  - `docs/tags_page_qa_findings.md` template for structured issue logging with severity and follow-up tracking.
+  - `docs/qa_process_README.md` describing the step-by-step QA workflow, troubleshooting tips, and resources.
+- Introduced `scripts/capture_screenshots.py` to capture reproducible UI screenshots and generate Markdown snippets with contextual notes.
+
+### Purpose
+- Ensure operators and QA reviewers have up-to-date guidance before running the enhanced Tags workflows.
+- Provide repeatable assets (checklists, findings template, screenshot tooling) to accelerate testing once fresh pipeline runs are ready.
+
+### Next Steps
+- Schedule a QA session after regenerating run data so the new collateral can be exercised end-to-end.
+- Fold collected findings back into `docs/tags_page_qa_findings.md` and surface any required fixes in `docs/ongoing.md`.

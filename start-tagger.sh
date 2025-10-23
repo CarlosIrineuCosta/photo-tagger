@@ -4,11 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-PYTHON_BIN="${PYTHON_BIN:-python3.11}"
+PYTHON_BIN="${PYTHON_BIN:-python3.10}"
 VENV_DIR="${ROOT_DIR}/.venv"
 
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 export APP_ROOT="${ROOT_DIR}"
+export PYTHONNOUSERSITE=1
 
 API_HOST="${API_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-8010}"
@@ -22,10 +23,11 @@ bootstrap_python() {
 
     # shellcheck disable=SC1090
     source "${VENV_DIR}/bin/activate"
+    export PYTHONNOUSERSITE=1
 
     if ! python -m pip show photo-tagger >/dev/null 2>&1; then
         echo "[env] Installing project dependencies (editable + dev extras)..."
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip setuptools wheel
         python -m pip install -e ".[dev]"
     elif ! python -m pip show uvicorn >/dev/null 2>&1; then
         echo "[env] Installing uvicorn dependency..."

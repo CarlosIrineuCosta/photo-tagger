@@ -45,6 +45,7 @@ STATE_LOCK = threading.Lock()
 STATE_DATA: Dict[str, dict] | None = None
 LABEL_CACHE: List[str] | None = None
 LABEL_SOURCE: Path | None = None
+LABEL_SIGNATURE: float | None = None
 LABEL_PACK: label_pack_core.LabelPack | None = None
 THUMB_CACHE: Dict[str, dict] = {}
 
@@ -79,6 +80,21 @@ def _load_yaml(path: Path) -> dict:
     if not isinstance(data, dict):
         return {}
     return data
+
+
+def _label_signature(path: Path) -> float:
+    try:
+        if path.is_dir():
+            latest = 0.0
+            for candidate in path.glob("**/*"):
+                try:
+                    latest = max(latest, candidate.stat().st_mtime)
+                except OSError:
+                    continue
+            return latest
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def load_config() -> dict:
@@ -150,22 +166,38 @@ def save_state(cfg: dict, state: Dict[str, dict]) -> None:
 
 def get_label_pool(cfg: dict) -> List[str]:
     global LABEL_CACHE, LABEL_SOURCE, LABEL_PACK
+    global LABEL_SIGNATURE
     label_path = Path(cfg.get("labels_file", "")).expanduser()
-    if LABEL_CACHE is not None and LABEL_SOURCE == label_path:
+    resolved_path: Path | None = None
+
+    if label_path.exists():
+        resolved_path = label_path
+    else:
+        repo_labels_dir = Path("labels")
+        if repo_labels_dir.exists():
+            resolved_path = repo_labels_dir.resolve()
+        else:
+            resolved_path = None
+
+    signature = _label_signature(resolved_path) if resolved_path else 0.0
+
+    if LABEL_CACHE is not None and LABEL_SOURCE == resolved_path and LABEL_SIGNATURE == signature:
         return LABEL_CACHE
 
     LABEL_CACHE = None
     LABEL_PACK = None
-    if label_path.exists():
+
+    if resolved_path and resolved_path.exists():
         try:
-            if label_path.is_dir():
-                LABEL_PACK = label_pack_core.load_label_pack(label_path)
+            if resolved_path.is_dir():
+                LABEL_PACK = label_pack_core.load_label_pack(resolved_path)
                 LABEL_CACHE = LABEL_PACK.labels
             else:
-                LABEL_CACHE = labels_core.load_labels(label_path)
+                LABEL_CACHE = labels_core.load_labels(resolved_path)
         except Exception:
             LABEL_CACHE = None
             LABEL_PACK = None
+
     if LABEL_CACHE is None:
         LABEL_CACHE = [
             "portrait",
@@ -175,7 +207,8 @@ def get_label_pool(cfg: dict) -> List[str]:
             "candid",
             "landscape",
         ]
-    LABEL_SOURCE = label_path
+    LABEL_SOURCE = resolved_path
+    LABEL_SIGNATURE = signature
     return LABEL_CACHE
 
 

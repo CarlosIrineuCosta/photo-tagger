@@ -3,7 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".dng",
+    ".cr2",
+    ".cr3",
+    ".nef",
+    ".arw",
+    ".rw2",
+    ".orf",
+}
 
 
 def _normalize_root(root: str | Path) -> Path:
