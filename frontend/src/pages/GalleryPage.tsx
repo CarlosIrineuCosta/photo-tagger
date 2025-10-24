@@ -83,11 +83,11 @@ export function GalleryPage() {
       })
       setItemState(next)
       setError(null)
-      const allFallback = data.length > 0 && data.every((item) => item.label_source !== "scores")
-      if (allFallback) {
-        pushStatus({ message: "CLIP scores not found; showing fallback tags", level: "error" })
+      const requiresProcessing = data.some((item) => item.requires_processing)
+      if (requiresProcessing) {
+        pushStatus({ message: "Please run Process images again.", level: "warning" })
       }
-      setNeedsProcessing(allFallback)
+      setNeedsProcessing(requiresProcessing)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load gallery")
     } finally {

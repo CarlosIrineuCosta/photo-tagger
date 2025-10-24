@@ -55,6 +55,7 @@ export interface EnhancedGalleryItem extends Omit<ApiGalleryItem, 'width' | 'hei
   width?: number | undefined  // Remove null from the type
   height?: number | undefined  // Remove null from the type
   label_source?: string  // Make it optional
+  requires_processing?: boolean
   display_tags: TagCandidate[]
   tag_stack: TagCandidate[]
   excluded_tags: string[]
@@ -167,6 +168,20 @@ export class EnhancedTaggingAPI {
     const enhancedItems: EnhancedGalleryItem[] = []
 
     for (const item of items) {
+      if (item.requires_processing) {
+        enhancedItems.push({
+          ...item,
+          width: item.width || undefined,
+          height: item.height || undefined,
+          label_source: item.label_source || "fallback",
+          requires_processing: true,
+          display_tags: [],
+          tag_stack: [],
+          excluded_tags: []
+        })
+        continue
+      }
+
       try {
         // Convert existing labels to tag scores format
         const tagScores = item.labels.map((label: ApiLabel) => ({
@@ -188,6 +203,7 @@ export class EnhancedTaggingAPI {
           width: item.width || undefined,
           height: item.height || undefined,
           label_source: item.label_source || "fallback",
+          requires_processing: item.requires_processing || false,
           display_tags: enhancedResponse.display_tags,
           tag_stack: enhancedResponse.tag_stack,
           excluded_tags: enhancedResponse.excluded_tags
@@ -202,6 +218,7 @@ export class EnhancedTaggingAPI {
           width: item.width || undefined,
           height: item.height || undefined,
           label_source: item.label_source || "fallback",
+          requires_processing: item.requires_processing || false,
           display_tags: item.labels.map(label => ({
             name: label.name,
             score: label.score,

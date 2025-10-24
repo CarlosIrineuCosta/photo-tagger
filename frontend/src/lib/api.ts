@@ -75,6 +75,7 @@ export type ApiGalleryItem = {
   saved: boolean
   selected: string[]
   label_source?: "scores" | "sidecar" | "fallback"
+  requires_processing?: boolean
   labels: ApiLabel[]
 }
 

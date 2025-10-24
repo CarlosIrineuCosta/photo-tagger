@@ -1,0 +1,19 @@
+labels_file: labels
+max_images: 100
+model_name: ViT-L-14
+root: /home/cdc/Storage/projects/photo-tagger/tests/images
+run_dir: runs
+thumb_cache: thumb_cache
+topk: 7
+index:
+  include_ext:
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".dng"
+    - ".cr2"
+    - ".cr3"
+    - ".nef"
+    - ".arw"
+    - ".rw2"
+    - ".orf"

@@ -28,3 +28,7 @@ Write concise, present-tense commit subjects that describe the impact (e.g., `Im
 ## Configuration & Data Safety
 Do not commit populated configs; use `config.yaml` as the primary configuration file. Inject secrets such as `OPENAI_API_KEY` via the environment if needed. Confirm `run_dir` points to scratch storage before running tests to avoid polluting production shares. Treat photo directories as read-only inputs.
 - Confirm with the operator before making changes—they may flip the repo into read-only mode to review plans before execution.
+
+## Agent Guidance
+
+- Default to UI-first solutions. Do not propose CLI-based fixes or workflows unless explicitly requested by the operator or in an urgent recovery scenario.

@@ -1,0 +1,66 @@
+# Enhanced Tagging Configuration
+
+# Basic settings
+max_display_tags: 10          # Number of tags to initially display
+tag_stack_multiplier: 2       # Multiplier for the tag stack (max_display * multiplier)
+
+# Feature toggles
+enable_synonym_handling: true     # Enable automatic synonym resolution
+enable_user_tag_processing: true  # Enable post-processing of user-added tags
+
+# Synonym handling
+# Define custom synonyms here. The key is the synonym, the value is the canonical form.
+synonyms:
+  # Photography terms
+  "pic": "photo"
+  "photograph": "photo"
+  "picture": "photo"
+  "snapshot": "photo"
+
+  # Location terms
+  "restaurant": "food"
+  "cafe": "food"
+  "bar": "food"
+  "pub": "food"
+
+  # Style terms
+  "monochrome": "black and white"
+  "grayscale": "black and white"
+  "b&w": "black and white"
+
+  # People terms
+  "headshot": "portrait"
+  "face": "portrait"
+
+  # Urban terms
+  "road": "street"
+  "alley": "street"
+  "avenue": "street"
+
+# Excluded tags
+# Tags that should be automatically excluded from suggestions
+excluded_tags:
+  - "photo"
+  - "image"
+  - "picture"
+  - "the"
+  - "a"
+  - "an"
+  - "and"
+  - "or"
+  - "of"
+  - "in"
+  - "on"
+  - "at"
+  - "with"
+
+# Tag processing
+# Minimum confidence score for tags to be included in the stack
+min_stack_score: 0.1
+
+# User tag processing
+# Whether to normalize user tags (lowercase, trim whitespace)
+normalize_user_tags: true
+
+# Whether to check user tags against the synonym map
+resolve_user_synonyms: true

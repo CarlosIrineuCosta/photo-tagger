@@ -556,7 +556,11 @@ def get_gallery(request: Request):
                 label_source = "scores"
         elif selected:
             label_source = "sidecar"
-        labels = _build_gallery_labels(candidate_labels, selected, topk, Path(path).name.lower())
+        requires_processing = label_source == "fallback" and not selected
+        if requires_processing:
+            labels = []
+        else:
+            labels = _build_gallery_labels(candidate_labels, selected, topk, Path(path).name.lower())
         medoid_info = None
         try:
             absolute_path = str(Path(path).resolve())
@@ -589,6 +593,7 @@ def get_gallery(request: Request):
                 "saved": saved,
                 "selected": selected,
                 "label_source": label_source,
+                "requires_processing": requires_processing,
                 "labels": [label.dict() for label in labels],
             }
         )

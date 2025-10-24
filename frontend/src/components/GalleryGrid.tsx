@@ -117,24 +117,28 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
                   ) : null}
                 </div>
               ) : null}
-              <div className="flex flex-wrap gap-1.5 text-xs">
-                {item.labels.slice(0, 6).map((label) => {
-                  const pressed = isLabelApproved(item.path, label.name)
-                  return (
-                    <Toggle
-                      key={label.name}
-                      pressed={pressed}
-                      onPressedChange={() => onToggleLabel(item.path, label)}
-                      className={cn(
-                        "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors",
-                        "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
-                      )}
-                    >
-                      <span>{label.name}</span>
-                    </Toggle>
-                  )
-                })}
-              </div>
+              {item.requires_processing ? (
+                <p className="text-xs font-medium text-destructive">Please run Process images again.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  {item.labels.slice(0, 6).map((label) => {
+                    const pressed = isLabelApproved(item.path, label.name)
+                    return (
+                      <Toggle
+                        key={label.name}
+                        pressed={pressed}
+                        onPressedChange={() => onToggleLabel(item.path, label)}
+                        className={cn(
+                          "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors",
+                          "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
+                        )}
+                      >
+                        <span>{label.name}</span>
+                      </Toggle>
+                    )
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

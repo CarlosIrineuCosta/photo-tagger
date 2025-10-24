@@ -152,100 +152,106 @@ export function GalleryGridEnhanced({
                 </div>
               ) : null}
 
-              {/* Display Tags */}
-              <div className="flex flex-wrap gap-1.5 text-xs">
-                {item.display_tags.slice(0, 6).map((label) => {
-                  const pressed = isLabelApproved(item.path, label.name)
-                  return (
-                    <div key={label.name} className="relative group">
-                      <Toggle
-                        pressed={pressed}
-                        onPressedChange={() => onToggleLabel(item.path, label)}
-                        className={cn(
-                          "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors pr-6",
-                          "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
-                        )}
-                      >
-                        <span>{label.name}</span>
-                      </Toggle>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="absolute -right-1 -top-1 h-4 w-4 rounded-full p-0 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        onClick={() => onExcludeTag(item.path, label.name)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* User Tag Input */}
-              <div className="flex gap-1">
-                <Input
-                  placeholder="Add tag..."
-                  value={userTagInputs[item.path] || ""}
-                  onChange={(e) => setUserTagInputs(prev => ({
-                    ...prev,
-                    [item.path]: e.target.value
-                  }))}
-                  className="h-7 text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleUserTagAdd(item.path)
-                    }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => handleUserTagAdd(item.path)}
-                >
-                  Add
-                </Button>
-              </div>
-
-              {/* Tag Stack Toggle */}
-              {itemState[item.path]?.tag_stack && itemState[item.path].tag_stack.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-xs justify-start"
-                  onClick={() => toggleTagStack(item.path)}
-                >
-                  {showTagStack[item.path] ? "Hide" : "Show"} backup tags ({itemState[item.path].tag_stack.length})
-                </Button>
-              )}
-
-              {/* Tag Stack */}
-              {showTagStack[item.path] && itemState[item.path]?.tag_stack && itemState[item.path].tag_stack.length > 0 && (
-                <div className="border-t border-line/30 pt-2">
-                  <div className="text-xs text-muted-foreground mb-1">Backup tags:</div>
-                  <div className="flex flex-wrap gap-1">
-                    {itemState[item.path].tag_stack.slice(0, 5).map((tag) => (
-                      <Badge
-                        key={tag.name}
-                        variant="outline"
-                        className="text-[10px] px-1.5 py-0.5"
-                      >
-                        {tag.name} ({tag.score.toFixed(2)})
-                      </Badge>
-                    ))}
-                    {itemState[item.path].tag_stack.length > 5 && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
-                        +{itemState[item.path].tag_stack.length - 5} more
-                      </Badge>
-                    )}
+              {item.requires_processing ? (
+                <p className="text-xs font-medium text-destructive">Please run Process images again.</p>
+              ) : (
+                <>
+                  {/* Display Tags */}
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    {item.display_tags.slice(0, 6).map((label) => {
+                      const pressed = isLabelApproved(item.path, label.name)
+                      return (
+                        <div key={label.name} className="relative group">
+                          <Toggle
+                            pressed={pressed}
+                            onPressedChange={() => onToggleLabel(item.path, label)}
+                            className={cn(
+                              "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors pr-6",
+                              "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
+                            )}
+                          >
+                            <span>{label.name}</span>
+                          </Toggle>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="absolute -right-1 -top-1 h-4 w-4 rounded-full p-0 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => onExcludeTag(item.path, label.name)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )
+                    })}
                   </div>
-                </div>
-              )}
 
-              {/* Excluded Tags */}
-              {itemState[item.path]?.excluded_tags && itemState[item.path].excluded_tags.length > 0 && (
-                <div className="text-xs text-muted-foreground">
-                  Excluded: {itemState[item.path].excluded_tags.join(", ")}
-                </div>
+                  {/* User Tag Input */}
+                  <div className="flex gap-1">
+                    <Input
+                      placeholder="Add tag..."
+                      value={userTagInputs[item.path] || ""}
+                      onChange={(e) => setUserTagInputs(prev => ({
+                        ...prev,
+                        [item.path]: e.target.value
+                      }))}
+                      className="h-7 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleUserTagAdd(item.path)
+                        }
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => handleUserTagAdd(item.path)}
+                    >
+                      Add
+                    </Button>
+                  </div>
+
+                  {/* Tag Stack Toggle */}
+                  {itemState[item.path]?.tag_stack && itemState[item.path].tag_stack.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs justify-start"
+                      onClick={() => toggleTagStack(item.path)}
+                    >
+                      {showTagStack[item.path] ? "Hide" : "Show"} backup tags ({itemState[item.path].tag_stack.length})
+                    </Button>
+                  )}
+
+                  {/* Tag Stack */}
+                  {showTagStack[item.path] && itemState[item.path]?.tag_stack && itemState[item.path].tag_stack.length > 0 && (
+                    <div className="border-t border-line/30 pt-2">
+                      <div className="text-xs text-muted-foreground mb-1">Backup tags:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {itemState[item.path].tag_stack.slice(0, 5).map((tag) => (
+                          <Badge
+                            key={tag.name}
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0.5"
+                          >
+                            {tag.name} ({tag.score.toFixed(2)})
+                          </Badge>
+                        ))}
+                        {itemState[item.path].tag_stack.length > 5 && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
+                            +{itemState[item.path].tag_stack.length - 5} more
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Excluded Tags */}
+                  {itemState[item.path]?.excluded_tags && itemState[item.path].excluded_tags.length > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      Excluded: {itemState[item.path].excluded_tags.join(", ")}
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

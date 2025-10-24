@@ -8,6 +8,23 @@ import open_clip
 import torch
 from PIL import Image
 
+try:
+    import rawpy
+except Exception:  # pragma: no cover - rawpy optional at import time
+    rawpy = None
+
+RAW_EXTENSIONS = {
+    ".dng",
+    ".nef",
+    ".arw",
+    ".cr2",
+    ".cr3",
+    ".rw2",
+    ".orf",
+    ".raf",
+    ".srw",
+}
+
 
 def _chunked(sequence: Sequence[str] | Iterable[str], size: int):
     batch: list[str] = []
@@ -71,8 +88,25 @@ def embed_images(
         for batch_paths in _chunked(paths, max(1, batch_size)):
             images = []
             for path in batch_paths:
-                with Image.open(Path(path)) as img:
-                    images.append(preprocess(img.convert("RGB")))
+                image_path = Path(path)
+                ext = image_path.suffix.lower()
+                if ext in RAW_EXTENSIONS:
+                    if rawpy is None:
+                        raise RuntimeError(
+                            f"rawpy is required to process RAW files (missing dependency for {image_path})"
+                        )
+                    with rawpy.imread(str(image_path)) as raw:
+                        rgb = raw.postprocess(
+                            use_auto_wb=True,
+                            no_auto_bright=True,
+                            output_color=rawpy.ColorSpace.sRGB,
+                            output_bps=8,
+                        )
+                        pil_image = Image.fromarray(rgb)
+                else:
+                    pil_image = Image.open(image_path)
+                with pil_image:
+                    images.append(preprocess(pil_image.convert("RGB")))
             image_tensor = torch.stack(images).to(device_resolved)
             with torch.cuda.amp.autocast(enabled=autocast_enabled):
                 feats = model.encode_image(image_tensor)

@@ -60,3 +60,4 @@ runs/
 archive/
 !docs/archive/
 data/
+/tests/images/

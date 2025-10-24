@@ -93,6 +93,7 @@ export function GalleryPageEnhanced() {
         width: item.width ?? undefined,
         height: item.height ?? undefined,
         label_source: item.label_source ?? "fallback",
+        requires_processing: item.requires_processing ?? false,
         display_tags: item.labels.map<TagCandidate>((label) => ({
           name: label.name,
           score: label.score,
@@ -110,6 +111,7 @@ export function GalleryPageEnhanced() {
     setBlockingMessage({ title: "Loading gallery…", message: "Fetching latest tags and thumbnails.", tone: "warning" })
     try {
       const data = await fetchGallery()
+      const requiresProcessing = data.some((item) => item.requires_processing)
 
       pushStatus({ message: "Processing tags with enhanced system..." })
       try {
@@ -151,12 +153,11 @@ export function GalleryPageEnhanced() {
       }
 
       setError(null)
-      const allFallback = data.length > 0 && data.every((item) => item.label_source !== "scores")
-      if (allFallback) {
-        pushStatus({ message: "CLIP scores not found; showing fallback tags", level: "error" })
-        appendWorkflowMessage("CLIP scores missing; showing fallback tags.", "warning")
+      if (requiresProcessing) {
+        pushStatus({ message: "Please run Process images again.", level: "warning" })
+        appendWorkflowMessage("Images require reprocessing. Run Process images again.", "warning")
       }
-      setNeedsProcessing(allFallback)
+      setNeedsProcessing(requiresProcessing)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load gallery"
       setError(message)
@@ -515,8 +516,7 @@ export function GalleryPageEnhanced() {
       return
     }
     if (!needsProcessing) {
-      appendWorkflowMessage("Gallery is already up to date—no processing required.", "info")
-      return
+      appendWorkflowMessage("Gallery appears up to date—running processing anyway on operator request.", "info")
     }
     setProcessing(true)
     setBlockingMessage({ title: "Processing images…", message: "Running pipeline across the selected root.", tone: "warning" })
