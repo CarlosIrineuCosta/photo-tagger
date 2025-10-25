@@ -29,6 +29,7 @@ from app.core import labels as labels_core
 from app.core import scan as scan_core
 from app.core import thumbs as thumbs_core
 from app.state.models import ImageState, ReviewStage
+from app.util.telemetry import TelemetryEvent, append_event, read_events, run_telemetry_path
 
 app = FastAPI(title="Photo Tagger API", version="0.1.0")
 
@@ -43,6 +44,93 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class LabelEntry(BaseModel):
+    name: str
+    score: float = Field(..., ge=0.0, le=1.0)
+
+
+class TagRequest(BaseModel):
+    filename: str
+    approved_labels: List[str] = Field(default_factory=list)
+
+
+class ExportRequest(BaseModel):
+    mode: str = Field("both", pattern="^(csv|sidecars|both)$")
+
+
+class ConfigUpdate(BaseModel):
+    root: str | None = None
+    labels_file: str | None = None
+    run_dir: str | None = None
+    thumb_cache: str | None = None
+    max_images: int | None = None
+    topk: int | None = None
+    model_name: str | None = None
+
+
+class ProcessResponse(BaseModel):
+    status: str
+    run_id: str | None = None
+    detail: str | None = None
+
+
+class GallerySummaryResponse(BaseModel):
+    total: int
+    counts: Dict[str, int]
+    medoid: Dict[str, object] | None = None
+    blocked: Dict[str, object] | None = None
+
+
+class GalleryPageResponse(BaseModel):
+    items: List[dict]
+    next_cursor: str | None = None
+    has_more: bool = False
+    total: int
+    summary: GallerySummaryResponse
+
+
+class ProcessStatusResponse(BaseModel):
+    status: str
+    run_id: str | None = None
+    started: float | None = None
+    detail: str | None = None
+    last_event: dict | None = None
+    telemetry: List[dict] = Field(default_factory=list)
+
+
+class ThumbPrefetchRequest(BaseModel):
+    paths: List[str] = Field(default_factory=list)
+    overwrite: bool = False
+
+
+class ThumbPrefetchResponse(BaseModel):
+    job_id: str
+    scheduled: int
+
+
+class LLMEnhanceRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+    language: str | None = None
+    max_suggestions: int = 5
+
+
+class LLMEnhanceResponse(BaseModel):
+    original_tags: List[str]
+    enhanced_tags: List[str]
+    notes: str
+
+
+class BenchmarkRequest(BaseModel):
+    image_count: int = Field(100, ge=1)
+    device: str = Field("cpu", min_length=1)
+
+
+class BenchmarkResponse(BaseModel):
+    status: str
+    detail: str
+    duration_ms: float
+
 CONFIG_PATH = Path("config.yaml")
 STATE_LOCK = threading.Lock()
 STATE_DATA: Dict[str, dict] | None = None
@@ -53,6 +141,13 @@ LABEL_PACK: label_pack_core.LabelPack | None = None
 THUMB_CACHE: Dict[str, dict] = {}
 THUMB_PREFETCH_JOBS: Dict[str, dict] = {}
 STATE_VERSION = 1
+PROCESS_STATUS: Dict[str, object] = {
+    "status": "idle",
+    "run_id": None,
+    "started": None,
+    "detail": None,
+    "last_event": None,
+}
 
 
 @app.get("/api/health")
@@ -327,6 +422,7 @@ def _prepare_gallery_records(cfg: dict) -> Tuple[List[dict], Dict[str, int], Dic
     blocked_map = _detect_blocked_files(metadata, float(cfg.get("max_tiff_mb", 1024)))
 
     summary_counts = {stage.value: 0 for stage in ReviewStage}
+    blocked_reason_counts: Dict[str, int] = {}
     records: List[dict] = []
 
     for path in paths:
@@ -338,6 +434,8 @@ def _prepare_gallery_records(cfg: dict) -> Tuple[List[dict], Dict[str, int], Dic
 
         blocked_reason = blocked_map.get(path)
         image_state.blocked_reason = blocked_reason
+        if blocked_reason:
+            blocked_reason_counts[blocked_reason] = blocked_reason_counts.get(blocked_reason, 0) + 1
 
         pending_reasons = [reason for reason in image_state.pending_reasons if reason != "modified"]
         if path in modified_paths:
@@ -369,6 +467,7 @@ def _prepare_gallery_records(cfg: dict) -> Tuple[List[dict], Dict[str, int], Dic
         )
 
     state["directory_index"] = metadata
+    state["blocked_reason_counts"] = blocked_reason_counts
     return records, summary_counts, state
 
 
@@ -767,82 +866,7 @@ def _load_medoid_map(
     return medoid_lookup
 
 
-class LabelEntry(BaseModel):
-    name: str
-    score: float = Field(..., ge=0.0, le=1.0)
 
-
-class TagRequest(BaseModel):
-    filename: str
-    approved_labels: List[str] = Field(default_factory=list)
-
-
-class ExportRequest(BaseModel):
-    mode: str = Field("both", pattern="^(csv|sidecars|both)$")
-
-
-class ConfigUpdate(BaseModel):
-    root: str | None = None
-    labels_file: str | None = None
-    run_dir: str | None = None
-    thumb_cache: str | None = None
-    max_images: int | None = None
-    topk: int | None = None
-    model_name: str | None = None
-
-
-class ProcessResponse(BaseModel):
-    status: str
-    run_id: str | None = None
-    detail: str | None = None
-
-
-class GallerySummaryResponse(BaseModel):
-    total: int
-    counts: Dict[str, int]
-
-
-class GalleryPageResponse(BaseModel):
-    items: List[dict]
-    next_cursor: str | None = None
-    has_more: bool = False
-    total: int
-    summary: GallerySummaryResponse
-
-
-def _build_gallery_labels(
-    base_labels: List[str],
-    selected: List[str],
-    topk: int,
-    filename: str,
-) -> List[LabelEntry]:
-    entries: List[LabelEntry] = []
-    used = set()
-    for idx, name in enumerate(selected):
-        clean = name.strip()
-        if not clean or clean in used:
-            continue
-        used.add(clean)
-        score = max(0.1, 0.99 - idx * 0.03)
-        entries.append(LabelEntry(name=clean, score=round(score, 2)))
-
-    filename_lower = filename.lower()
-    suggestion_target = max(topk, len(entries) + topk)
-    suggestion_index = 0
-    for name in base_labels:
-        clean = name.strip()
-        if not clean or clean in used:
-            continue
-        used.add(clean)
-        base_score = 0.65 - 0.05 * suggestion_index
-        if clean in filename_lower or clean.replace(" ", "") in filename_lower:
-            base_score += 0.2
-        score = max(0.1, min(0.95, base_score))
-        entries.append(LabelEntry(name=clean, score=round(score, 2)))
-        suggestion_index += 1
-        if len(entries) >= suggestion_target:
-            break
-    return entries
 
 
 def _ensure_thumbnail(path: str, cache_root: str) -> dict:
@@ -863,6 +887,7 @@ def get_gallery(request: Request, cursor: str | None = None, limit: int = 25, st
 
     records, summary_counts, state = _prepare_gallery_records(cfg)
     images_state = state.setdefault("images", {})
+    blocked_reason_counts = state.get("blocked_reason_counts", {})
     scores_map, medoid_map, run_root_path = _load_run_context(cfg, root)
 
     items = _build_gallery_items(
@@ -892,7 +917,26 @@ def get_gallery(request: Request, cursor: str | None = None, limit: int = 25, st
     has_more = end_index < len(items)
     next_cursor = _encode_cursor(end_index) if has_more else None
 
-    summary = GallerySummaryResponse(total=len(items), counts=summary_counts)
+    medoid_total = sum(1 for item in items if item.get("medoid"))
+    cluster_type_counts: Dict[str, int] = {}
+    for item in items:
+        if not item.get("medoid"):
+            continue
+        for cluster in item.get("medoid_clusters") or []:
+            kind = str(cluster.get("cluster_type", "unknown"))
+            cluster_type_counts[kind] = cluster_type_counts.get(kind, 0) + 1
+
+    summary = GallerySummaryResponse(
+        total=len(items),
+        counts=summary_counts,
+        medoid={
+            "total": medoid_total,
+            "cluster_types": cluster_type_counts,
+        },
+        blocked={
+            "reasons": blocked_reason_counts,
+        },
+    )
     return GalleryPageResponse(
         items=page_items,
         next_cursor=next_cursor,
@@ -1046,46 +1090,6 @@ def update_config(update: ConfigUpdate):
     save_config(data)
 
 
-@app.post("/api/thumbs/prefetch")
-def prefetch_thumbnails():
-    """Prefetch thumbnails for all images."""
-    cfg = load_config()
-    root = Path(cfg.get("root", ".")).expanduser()
-    cache_root = cfg.get("thumb_cache", "thumb_cache")
-    max_images = cfg.get("max_images")
-
-    # Get all images
-    images = scan_core.scan_directory(root=root, max_images=max_images)
-
-    # Start background prefetch
-    def prefetch_worker():
-        prefetched = 0
-        for path in images:
-            if not Path(path).exists():
-                continue
-            try:
-                thumbs_core.build_thumbnail(path, cache_root=cache_root)
-                prefetched += 1
-            except Exception:
-                continue
-        return {"status": "completed", "prefetched": prefetched, "total": len(images)}
-
-    # Run in background thread
-    import threading
-    thread = threading.Thread(target=prefetch_worker)
-    thread.daemon = True
-    thread.start()
-
-    return {"status": "started", "message": "Thumbnail prefetch started in background"}
-    # reset caches
-    global STATE_DATA, LABEL_CACHE, LABEL_SOURCE, LABEL_PACK
-    with STATE_LOCK:
-        STATE_DATA = None
-    LABEL_CACHE = None
-    LABEL_SOURCE = None
-    LABEL_PACK = None
-    return {"status": "updated", "config": data}
-
 
 @app.post("/api/process", response_model=ProcessResponse)
 def process_images():
@@ -1136,6 +1140,169 @@ def process_images():
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{env.get('PYTHONPATH', '')}"
 
+    start_time = time.time()
+    _update_process_status(status="running", run_id=run_id, started=start_time, detail="Processing images", last_event=None)
+    telemetry_path = run_telemetry_path(run_dir, run_id)
+    append_event(
+        telemetry_path,
+        TelemetryEvent(stage="process", event="start", duration_ms=0.0, item_count=None, run_id=run_id),
+    )
+
+    try:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            env=env,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        append_event(
+            telemetry_path,
+            TelemetryEvent(
+                stage="process",
+                event="error",
+                duration_ms=(time.time() - start_time) * 1000.0,
+                item_count=None,
+                run_id=run_id,
+                details={"detail": detail},
+            ),
+        )
+        _update_process_status(status="error", run_id=run_id, detail=detail, last_event={"event": "error"})
+        raise HTTPException(status_code=500, detail=detail)
+    finally:
+        global STATE_DATA
+        with STATE_LOCK:
+            STATE_DATA = None
+        THUMB_CACHE.clear()
+
+    duration_ms = (time.time() - start_time) * 1000.0
+    completion_event = TelemetryEvent(
+        stage="process",
+        event="complete",
+        duration_ms=duration_ms,
+        item_count=None,
+        run_id=run_id,
+        details={"stdout": (result.stdout or "").strip()},
+    )
+    append_event(telemetry_path, completion_event)
+    _update_process_status(status="idle", run_id=run_id, detail="Completed", last_event=completion_event.__dict__)
+
+    return ProcessResponse(status="ok", run_id=run_id, detail=(result.stdout or "").strip())
+
+
+class ProcessStatusResponse(BaseModel):
+    status: str
+    run_id: str | None = None
+    started: float | None = None
+    detail: str | None = None
+    last_event: dict | None = None
+    telemetry: List[dict] = Field(default_factory=list)
+
+
+class ThumbPrefetchRequest(BaseModel):
+    paths: List[str] = Field(default_factory=list)
+    overwrite: bool = False
+
+
+class ThumbPrefetchResponse(BaseModel):
+    job_id: str
+    scheduled: int
+
+
+class LLMEnhanceRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+    language: str | None = None
+    max_suggestions: int = 5
+
+
+class LLMEnhanceResponse(BaseModel):
+    original_tags: List[str]
+    enhanced_tags: List[str]
+    notes: str
+
+
+class BenchmarkRequest(BaseModel):
+    image_count: int = Field(100, ge=1)
+    device: str = Field("cpu", min_length=1)
+
+
+class BenchmarkResponse(BaseModel):
+    status: str
+    detail: str
+    duration_ms: float
+
+
+def _update_process_status(**updates) -> None:
+    PROCESS_STATUS.update(updates)
+
+
+@app.get("/api/process/status", response_model=ProcessStatusResponse)
+def get_process_status():
+    cfg = load_config()
+    run_dir = Path(cfg.get("run_dir", "runs"))
+    run_id = PROCESS_STATUS.get("run_id")
+    telemetry_events: List[dict] = []
+    if isinstance(run_id, str):
+        telemetry_path = run_telemetry_path(run_dir, run_id)
+        telemetry_events = [event.__dict__ for event in read_events(telemetry_path, limit=20)]
+    return ProcessStatusResponse(
+        status=str(PROCESS_STATUS.get("status")),
+        run_id=run_id if isinstance(run_id, str) else None,
+        started=PROCESS_STATUS.get("started"),
+        detail=PROCESS_STATUS.get("detail"),
+        last_event=PROCESS_STATUS.get("last_event"),
+        telemetry=telemetry_events,
+    )
+
+
+@app.post("/api/llm/tags/enhance", response_model=LLMEnhanceResponse)
+def enhance_tags_with_llm(request_data: LLMEnhanceRequest):
+    cleaned = [label for label in (_normalize_labels(request_data.tags)) if label]
+    notes = (
+        "LLM enhancement not yet implemented. "
+        "This stub simply returns the normalized tags and appends placeholder suggestions."
+    )
+    suggestions = cleaned[: request_data.max_suggestions]
+    if not suggestions:
+        suggestions = ["sample-tag"]
+    return LLMEnhanceResponse(
+        original_tags=request_data.tags,
+        enhanced_tags=suggestions,
+        notes=notes,
+    )
+
+
+@app.post("/api/process/benchmark", response_model=BenchmarkResponse)
+def benchmark_process(request_data: BenchmarkRequest):
+    cfg = load_config()
+    root = cfg.get("root")
+    if not root:
+        raise HTTPException(status_code=400, detail="Root path not configured")
+    run_dir = Path(cfg.get("run_dir", "runs"))
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "app.cli.tagger",
+        "--run-dir",
+        str(run_dir),
+        "benchmark",
+        "--root",
+        str(root),
+        "--image_count",
+        str(request_data.image_count),
+        "--device",
+        request_data.device,
+    ]
+    repo_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{env.get('PYTHONPATH', '')}"
+
+    start = time.time()
     try:
         result = subprocess.run(
             cmd,
@@ -1148,10 +1315,7 @@ def process_images():
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
         raise HTTPException(status_code=500, detail=detail)
-    finally:
-        global STATE_DATA
-        with STATE_LOCK:
-            STATE_DATA = None
-        THUMB_CACHE.clear()
 
-    return ProcessResponse(status="ok", run_id=run_id, detail=(result.stdout or "").strip())
+    duration_ms = (time.time() - start) * 1000.0
+    detail = (result.stdout or "").strip()
+    return BenchmarkResponse(status="ok", detail=detail, duration_ms=duration_ms)

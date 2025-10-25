@@ -19,6 +19,9 @@
 - Always start with a fresh `./reset-tagger-env.sh` if you pulled new dependencies.
 - Kick off the stack with `./start-tagger.sh` (ensures backend + Vite, handles port conflicts, installs frontend deps when needed).
 - RAW support is enabled by default: `config.yaml` lists `.jpg/.jpeg/.png/.dng/.cr2/.cr3/.nef/.arw/.rw2/.orf`.
+- Two new config keys control runtime behaviour:
+  - `max_tiff_mb`: refuse TIFFs above this size (default `1024`).
+  - `apply_xmp_light`: enable RAW/XMP exposure adjustments during thumbnail generation.
 - Quick validation workflow (inside the dev shell):
   ```bash
   python -m app.cli.tagger --run-dir runs scan --root tests/images
@@ -90,6 +93,7 @@ The Gallery page is your primary interface for reviewing and approving image tag
    - **Unapproved only**: Show only images that haven't been reviewed yet
    - **Hide after save**: Hide images after you've saved your selections
    - **Center crop**: Change image display mode
+   - **Stage filter**: Use the segmented control to jump between `New`, `Needs tags`, `Draft`, `Saved`, and `Blocked` stages. The numeric chips reflect the real-time counts returned by `/api/gallery`.
 
 2. **Image Review**:
    - Each image shows its top-scoring labels as toggleable badges
@@ -108,6 +112,12 @@ The Gallery page is your primary interface for reviewing and approving image tag
    - **Process Images**: Run the full pipeline on your image directory
    - **Save Approved**: Save your current selections
    - **Export**: Export results as CSV or XMP sidecars
+   - **Prefetch thumbnails**: When new files are detected, use the blue banner to warm the thumbnail cache via `/api/thumbs/prefetch` before diving into review.
+
+5. **Status & Telemetry**:
+   - The **Processing** button triggers the CLI pipeline and streams updates into `/api/process/status`, which now exposes recent telemetry events for each run (`runs/<RUN_ID>/telemetry.jsonl`).
+   - Oversized TIFFs (default limit 1 GB, configurable via `max_tiff_mb`) are marked as `Blocked` with detailed reasons so you can convert or exclude them before the next pass.
+   - Run `/api/process/benchmark` (or use the UI shortcut once exposed) to capture CPU-only timing on a small sample without touching your existing review state.
 
 ### Tags Page
 
@@ -243,6 +253,10 @@ The system provides a comprehensive workflow for managing orphan tags:
 2. **Suggestion**: ML heuristics suggest appropriate groups for each orphan tag
 3. **Quick Promotion**: One-click promotion to suggested groups
 4. **Bulk Promotion**: Promote multiple tags at once with custom group assignments
+
+5. **LLM Enhancement (preview)**:
+   - The UI now gates LLM-based tag suggestions behind a preview flag.
+   - Backend stub `/api/llm/tags/enhance` echoes normalized tags and placeholder suggestions so the frontend contract can stabilise ahead of the real model.
 5. **Graduation Review**: Review and resolve pending graduations grouped by canonical label
 
 ### Best Practices

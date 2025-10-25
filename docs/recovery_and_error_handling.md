@@ -29,9 +29,20 @@ Certain files may be skipped during processing. This is usually due to file form
 
 ### Large TIFF Files
 
-- **Scenario**: The scanner will skip any TIFF files (`.tif`, `.tiff`) that are larger than 1GB.
-- **Reason**: Processing very large TIFF files can consume a large amount of memory and cause the application to crash.
-- **Indication**: These files will not appear in the output of the `scan` command and will be silently skipped. Their status can be considered `blocked`.
+- **Scenario**: The scanner will skip any TIFF files (`.tif`, `.tiff`) that exceed the configured `max_tiff_mb` limit (defaults to 1024 MB).
+- **Reason**: Processing very large TIFF files can consume substantial memory and destabilise the worker.
+- **Indication**: These files appear in the gallery with stage `blocked` and a “TIFF exceeds configured size limit” note. They are also counted under `summary.blocked.reasons` in the `/api/gallery` response.
+- **Recovery**: Convert the file to a lighter format or adjust `max_tiff_mb` in `config.yaml`, then re-run the pipeline.
+
+### Unsupported or Corrupt RAW Files
+
+- **Scenario**: A RAW file may be in a camera-specific format that `rawpy` cannot decode, or the file could be corrupt.
+- **Reason**: Missing decoder support or partial uploads typically cause these failures.
+- **Indication**: Thumbnail prefetch will emit an error in the status log, and the gallery will mark the asset as blocked with the reported reason.
+- **Recovery**:
+  1. Verify the RAW + XMP pair by opening it in your preferred editor.
+  2. If the format is unsupported, convert to DNG before retrying.
+  3. Remove or replace the damaged file, then re-run `Process Images`.
 
 ### Corrupt Image Files
 

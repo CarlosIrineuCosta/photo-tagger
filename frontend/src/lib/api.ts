@@ -97,6 +97,13 @@ export type GalleryResponse = {
   summary: {
     total: number
     counts: Record<ReviewStage, number>
+    medoid?: {
+      total: number
+      cluster_types: Record<string, number>
+    }
+    blocked?: {
+      reasons: Record<string, number>
+    }
   }
 }
 

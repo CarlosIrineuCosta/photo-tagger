@@ -33,11 +33,11 @@
 - [x] Extend `/api/gallery` to emit stage metadata, first/last timestamps, and new/modified flags; persist diff cache server-side.
 - [x] Convert gallery responses to cursor-based pagination with total counts and streaming-friendly summary endpoint.
 - [x] Add `/api/thumbs/prefetch` background task plus status indicators for pending thumbnails.
-- [ ] Enforce configurable large-TIFF ceiling with `BLOCKED` state and API guidance payloads.
-- [ ] Instrument process orchestration (`/api/process` + `/api/process/status`) with structured telemetry and expose CPU benchmark endpoint.
-- [ ] Publish medoid cluster summaries (size, cosine, label hints) through the API and refine heuristic parameters for mixed folders.
-- [ ] Provide stub FastAPI router for future LLM tag enhancement, gated by feature flag and documented contract.
-- [ ] Update backend docs (`docs/deployment.md`, `docs/api.md`) to reflect new endpoints, states, and telemetry fields.
+- [x] Enforce configurable large-TIFF ceiling with `BLOCKED` state and API guidance payloads.
+- [x] Instrument process orchestration (`/api/process` + `/api/process/status`) with structured telemetry and expose CPU benchmark endpoint.
+- [x] Publish medoid cluster summaries (size, cosine, label hints) through the API and refine heuristic parameters for mixed folders.
+- [x] Provide stub FastAPI router for future LLM tag enhancement, gated by feature flag and documented contract.
+- [x] Update backend docs (`docs/deployment.md`, `docs/api.md`) to reflect new endpoints, states, and telemetry fields.
 
 ### GLM 2025-10-24 – UI & Review Experience
 
@@ -59,9 +59,9 @@
 - [x] Build process delta computation (new vs modified) with persistent cache optimized for large folders.
 - [x] Prototype medoid heuristic tuning harness to validate cluster coverage on mixed datasets.
 - [x] Capture pipeline timing benchmarks for CPU-only environments and log results into run metadata.
-- [ ] Draft blocked-file troubleshooting snippet (TIFF over limit, unsupported RAW) for operator docs.
-- [ ] Document interrupted run recovery steps (resume pipeline, cache cleanup, verification checklist).
-- [ ] Review & publish the combined recovery guide (`docs/recovery_and_error_handling.md`) with QA sign-off.
+- [x] Draft blocked-file troubleshooting snippet (TIFF over limit, unsupported RAW) for operator docs.
+- [x] Document interrupted run recovery steps (resume pipeline, cache cleanup, verification checklist).
+- [x] Review & publish the combined recovery guide (`docs/recovery_and_error_handling.md`) with QA sign-off.
 
 ### GLM Assist (trigger after core changes are ready)
 
