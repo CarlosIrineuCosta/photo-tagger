@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import List, Sequence
+import xml.etree.ElementTree as ET
 
 from PIL import Image
 
@@ -10,6 +12,8 @@ try:
     import rawpy
 except Exception:  # pragma: no cover - rawpy is optional at import time
     rawpy = None
+
+from app.config import load_config
 
 RAW_EXTENSIONS = {
     ".dng",
@@ -67,17 +71,41 @@ def _resize_image(image: Image.Image, max_edge: int) -> Image.Image:
     return image.resize((new_width, new_height), resample)
 
 
+def _parse_xmp_exposure(xmp_path: Path) -> dict | None:
+    """
+    Parse an XMP file and extract the exposure setting.
+    This is a simplified parser for demonstration.
+    """
+    try:
+        tree = ET.parse(xmp_path)
+        root = tree.getroot()
+        # Namespace may vary, so we search for the tag with a wildcard
+        for desc in root.findall(".//{*}Description"):
+            exposure = desc.get("{http://ns.adobe.com/crs/1.0/}Exposure2012")
+            if exposure:
+                return {"exposure": float(exposure)}
+    except (ET.ParseError, FileNotFoundError):
+        return None
+    return None
+
+
 def build_thumbnail(
     image_path: str | Path,
     cache_root: str | Path = DEFAULT_CACHE_ROOT,
     max_edge: int = DEFAULT_MAX_EDGE,
     overwrite: bool = False,
+    config_path: str = "config.yaml",
 ) -> dict:
     """
     Create (or reuse) the cached thumbnail for ``image_path`` and return metadata.
     """
     image_path = Path(image_path)
     thumb_path = thumbnail_path(image_path, cache_root=cache_root)
+    
+    config = load_config(config_path)
+    thumb_config = config.get("thumbnails", {})
+    xmp_processing = thumb_config.get("xmp_processing", False)
+    xmp_cache_dir = Path(thumb_config.get("xmp_cache_dir", "xmp_cache"))
 
     if thumb_path.exists() and not overwrite:
         with Image.open(thumb_path) as thumb:
@@ -89,13 +117,38 @@ def build_thumbnail(
                 raise RuntimeError(
                     f"rawpy is required to process RAW files (missing dependency for {image_path})"
                 )
+            
+            postprocess_params = {
+                "use_auto_wb": True,
+                "no_auto_bright": True,
+                "output_color": rawpy.ColorSpace.sRGB,
+                "output_bps": 8,
+            }
+
+            if xmp_processing:
+                xmp_path = image_path.with_suffix(".xmp")
+                if xmp_path.exists():
+                    xmp_sha1 = _sha1_file(xmp_path)
+                    xmp_cache_path = _ensure_cache_root(xmp_cache_dir) / f"{xmp_sha1}.json"
+
+                    if xmp_cache_path.exists():
+                        with open(xmp_cache_path, "r") as f:
+                            adjustments = json.load(f)
+                    else:
+                        adjustments = _parse_xmp_exposure(xmp_path)
+                        if adjustments:
+                            with open(xmp_cache_path, "w") as f:
+                                json.dump(adjustments, f)
+                    
+                    if adjustments and "exposure" in adjustments:
+                        # The 'bright' parameter in rawpy is a multiplier.
+                        # An exposure of +1 in Lightroom is roughly equivalent to doubling the brightness.
+                        # So we can use 2^exposure as a multiplier.
+                        postprocess_params["bright"] = 2 ** adjustments["exposure"]
+                        postprocess_params["no_auto_bright"] = False # Allow brightness adjustment
+
             with rawpy.imread(str(image_path)) as raw:
-                rgb = raw.postprocess(
-                    use_auto_wb=True,
-                    no_auto_bright=True,
-                    output_color=rawpy.ColorSpace.sRGB,
-                    output_bps=8,
-                )
+                rgb = raw.postprocess(**postprocess_params)
                 original = Image.fromarray(rgb)
         else:
             original = Image.open(image_path)

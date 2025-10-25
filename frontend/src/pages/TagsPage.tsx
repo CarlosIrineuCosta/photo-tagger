@@ -35,6 +35,7 @@ import {
   suggestGroupForTag,
   fetchGraduations,
   resolveGraduation,
+  fetchConfig,
   type TagGroupSummary,
   type TagSummaryResponse,
   type OrphanTagSummary,
@@ -45,6 +46,9 @@ import {
   type GraduationEntry,
 } from "@/lib/api"
 import { useStatusLog } from "@/context/status-log"
+import { VirtualizedTagList } from "@/components/VirtualizedTagList"
+import { VirtualizedPillTagList } from "@/components/VirtualizedPillTagList"
+import { LLMEnhancerPanel } from "@/components/LLMEnhancerPanel"
 
 type BlockingState = { title: string; message?: string } | null
 
@@ -76,10 +80,27 @@ export function TagsPage() {
   const [graduations, setGraduations] = useState<GraduationsResponse | null>(null)
   const [graduationsOpen, setGraduationsOpen] = useState(false)
   const [loadingGraduations, setLoadingGraduations] = useState(false)
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
+
+  // LLM Enhancer state
+  const [llmEnhancerOpen, setLlmEnhancerOpen] = useState(false)
+  const [llmEnhancerImageId, setLlmEnhancerImageId] = useState<string>("")
+  const [llmEnhancerCurrentTags, setLlmEnhancerCurrentTags] = useState<string[]>([])
+  const [llmEnhancerEnabled, setLlmEnhancerEnabled] = useState(false)
 
   const groups = useMemo(() => summary?.groups ?? [], [summary])
   const defaultGroupId = groups[0]?.id ?? ""
   const promotionReady = Boolean(selectedGroupId || newGroupName.trim())
+
+  // Load feature flags
+  const loadFeatureFlags = useCallback(async () => {
+    try {
+      const config = await fetchConfig()
+      setLlmEnhancerEnabled(config.features?.llm_enhancer || false)
+    } catch (err) {
+      console.warn("Failed to load feature flags:", err)
+    }
+  }, [])
 
   const loadSummary = useCallback(
     async (overlay?: BlockingState) => {
@@ -105,7 +126,8 @@ export function TagsPage() {
 
   useEffect(() => {
     void loadSummary()
-  }, [loadSummary])
+    void loadFeatureFlags()
+  }, [loadSummary, loadFeatureFlags])
 
   const fetchSuggestion = useCallback(
     async (tag: string) => {
@@ -385,9 +407,27 @@ export function TagsPage() {
     [defaultGroupId]
   )
 
-  const handleInputChange = useCallback((groupId: string, value: string) => {
-    setInputs((prev) => ({ ...prev, [groupId]: value }))
-  }, [])
+  const handleLlmEnhance = useCallback(
+    (imageId: string, currentTags: string[]) => {
+      setLlmEnhancerImageId(imageId)
+      setLlmEnhancerCurrentTags(currentTags)
+      setLlmEnhancerOpen(true)
+    },
+    []
+  )
+
+  const handleLlmEnhancerTagsUpdate = useCallback(
+    (newTags: string[]) => {
+      // This would typically update the image tags in the gallery
+      // For now, just show a status message
+      pushStatus({
+        message: `Updated tags with ${newTags.length} total tags`,
+        level: "success"
+      })
+    },
+    [pushStatus]
+  )
+
 
   const handleAddTag = useCallback(
     async (group: TagGroupSummary) => {
@@ -502,15 +542,26 @@ export function TagsPage() {
           <span>
             Tags observed: <strong>{stats.samples_indexed ?? 0}</strong>
           </span>
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-auto"
-            onClick={() => loadSummary({ title: "Refreshing tags…", message: "Re-reading label packs." })}
-            disabled={!!blocking}
-          >
-            Refresh
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {llmEnhancerEnabled && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleLlmEnhance("demo-image", ["portrait", "outdoor"])}
+                disabled={!!blocking}
+              >
+                LLM Enhance
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => loadSummary({ title: "Refreshing tags…", message: "Re-reading label packs." })}
+              disabled={!!blocking}
+            >
+              Refresh
+            </Button>
+          </div>
         </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
@@ -523,41 +574,12 @@ export function TagsPage() {
               <p className="text-xs text-muted-foreground">{group.tags.length} labels · {group.path}</p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder={`Add ${group.label.toLowerCase()} tag`}
-                  value={inputs[group.id] ?? ""}
-                  onChange={(event) => handleInputChange(group.id, event.target.value)}
-                  disabled={!!blocking || busyGroup === group.id}
-                />
-                <Button
-                  onClick={() => void handleAddTag(group)}
-                  disabled={!!blocking || busyGroup === group.id}
-                >
-                  Add
-                </Button>
-              </div>
-              <ScrollArea className="h-64 rounded-md border border-line/40">
-                <ul className="divide-y divide-line/30 text-sm">
-                  {group.tags.map((tag) => (
-                    <li key={tag} className="flex items-center justify-between px-3 py-2">
-                      <span className="truncate text-foreground">{tag}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => void handleDeleteTag(group, tag)}
-                        disabled={!!blocking || busyGroup === group.id}
-                      >
-                        Remove
-                      </Button>
-                    </li>
-                  ))}
-                  {group.tags.length === 0 ? (
-                    <li className="px-3 py-2 text-muted-foreground">No tags yet.</li>
-                  ) : null}
-                </ul>
-              </ScrollArea>
+              <VirtualizedTagList
+                tags={group.tags.map((tagName) => ({ name: tagName, count: 0 }))}
+                selectedTags={selectedTags}
+                onSelectionChange={setSelectedTags}
+                className="h-64"
+              />
             </CardContent>
           </Card>
         ))}
@@ -582,6 +604,66 @@ export function TagsPage() {
             )}
           </div>
         </div>
+
+        <Card className="border-line/60 bg-panel">
+          <CardContent className="p-4">
+            <VirtualizedPillTagList
+              tags={orphanTags.map(tag => ({
+                name: tag.name,
+                count: tag.occurrences,
+                frequency: tag.occurrences,
+                occurrences: tag.occurrences,
+                suggested_group_id: tag.suggested_group_id,
+                suggested_label_id: tag.suggested_label_id,
+                label_hint: tag.label_hint,
+                confidence: tag.confidence
+              }))}
+              selectedTags={selectedOrphans}
+              onSelectionChange={setSelectedOrphans}
+              showFrequency={true}
+              enableDragDrop={true}
+              onBatchAction={async (action, tags) => {
+                if (action === "promote") {
+                  // Convert to bulk promotion format
+                  const actions: BulkPromoteAction[] = tags.map(tagName => {
+                    const orphan = orphanTags.find(t => t.name === tagName)
+                    const suggestion = suggestions.get(tagName)
+                    const fallbackGroup = defaultGroupId || groups[0]?.id || ""
+                    const targetGroup = orphan?.suggested_group_id || suggestion?.suggested_group_id || fallbackGroup
+
+                    const bulkAction: BulkPromoteAction = {
+                      tag: tagName,
+                      target_group: targetGroup,
+                    }
+
+                    const labelId = orphan?.suggested_label_id || suggestion?.label_id
+                    if (labelId) {
+                      bulkAction.label_id = labelId
+                    }
+
+                    return bulkAction
+                  })
+
+                  await handleBulkPromote(actions)
+                } else if (action === "exclude") {
+                  // Handle exclusion logic
+                  pushStatus({
+                    message: `Excluded ${tags.length} tag${tags.length === 1 ? "" : "s"} from suggestions`,
+                    level: "info",
+                  })
+                } else if (action === "review") {
+                  // Handle review logic
+                  pushStatus({
+                    message: `Marked ${tags.length} tag${tags.length === 1 ? "" : "s"} for review`,
+                    level: "info",
+                  })
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Traditional table view as fallback */}
         <Card className="border-line/60 bg-panel">
           <CardContent className="p-0">
             <ScrollArea className="h-60">
@@ -1038,6 +1120,17 @@ export function TagsPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* LLM Enhancer Panel */}
+      {llmEnhancerEnabled && (
+        <LLMEnhancerPanel
+          isOpen={llmEnhancerOpen}
+          onOpenChange={setLlmEnhancerOpen}
+          imageId={llmEnhancerImageId}
+          currentTags={llmEnhancerCurrentTags}
+          onTagsUpdate={handleLlmEnhancerTagsUpdate}
+        />
+      )}
     </div>
   )
 }

@@ -5,6 +5,8 @@ root: /home/cdc/Storage/projects/photo-tagger/tests/images
 run_dir: runs
 thumb_cache: thumb_cache
 topk: 7
+features:
+  llm_enhancer: false
 index:
   include_ext:
     - ".jpg"
@@ -17,3 +19,6 @@ index:
     - ".arw"
     - ".rw2"
     - ".orf"
+thumbnails:
+  xmp_processing: true
+  xmp_cache_dir: "xmp_cache"

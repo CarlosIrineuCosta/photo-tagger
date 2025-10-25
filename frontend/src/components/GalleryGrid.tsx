@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Toggle } from "@/components/ui/toggle"
 import { cn } from "@/lib/utils"
+import "./cursor-help.css"
 import type { ApiGalleryItem, ApiLabel, ApiMedoidCluster } from "@/lib/api"
 
 type GalleryGridProps = {
@@ -57,6 +58,14 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
     []
   )
 
+  const formatBlockedReason = useCallback((reason?: string | null) => {
+    if (!reason) return null
+    if (reason === "oversized_tiff") {
+      return "TIFF exceeds configured size limit."
+    }
+    return reason.replace(/_/g, " ")
+  }, [])
+
   return (
     <section className={cn("rounded-2xl border border-line/60 bg-panel p-3.5", className)}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
@@ -106,7 +115,12 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
               {item.medoid && item.medoid_clusters && item.medoid_clusters.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {item.medoid_clusters.slice(0, 3).map((cluster, index) => (
-                    <Badge key={`${cluster.cluster_type}-${cluster.label_hint}-${index}`} variant="outline" className="text-[10px] uppercase">
+                    <Badge
+                      key={`${cluster.cluster_type}-${cluster.label_hint}-${index}`}
+                      variant="outline"
+                      className="text-[10px] uppercase cursor-help"
+                      title={renderClusterBadge(cluster, item.medoid_folder)}
+                    >
                       {renderClusterBadge(cluster, item.medoid_folder)}
                     </Badge>
                   ))}
@@ -119,24 +133,46 @@ export function GalleryGrid({ items, cropMode = false, className, itemState, onT
               ) : null}
               {item.requires_processing ? (
                 <p className="text-xs font-medium text-destructive">Please run Process images again.</p>
+              ) : item.stage === "blocked" ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-destructive">
+                    Processing blocked - file too large or unsupported format
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Consider converting to a supported format or reducing file size
+                  </p>
+                  {formatBlockedReason(item.blocked_reason) && (
+                    <p className="text-xs text-muted-foreground">
+                      Reason: {formatBlockedReason(item.blocked_reason)}
+                    </p>
+                  )}
+                </div>
               ) : (
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  {item.labels.slice(0, 6).map((label) => {
-                    const pressed = isLabelApproved(item.path, label.name)
-                    return (
-                      <Toggle
-                        key={label.name}
-                        pressed={pressed}
-                        onPressedChange={() => onToggleLabel(item.path, label)}
-                        className={cn(
-                          "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors",
-                          "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
-                        )}
-                      >
-                        <span>{label.name}</span>
-                      </Toggle>
-                    )
-                  })}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    {item.labels.slice(0, 6).map((label) => {
+                      const pressed = isLabelApproved(item.path, label.name)
+                      return (
+                        <Toggle
+                          key={label.name}
+                          pressed={pressed}
+                          onPressedChange={() => onToggleLabel(item.path, label)}
+                          className={cn(
+                            "h-auto rounded-full border border-line/60 bg-chip px-2.5 py-1 text-[11px] font-medium tracking-tight text-foreground transition-colors",
+                            "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-foreground"
+                          )}
+                        >
+                          <span>{label.name}</span>
+                        </Toggle>
+                      )
+                    })}
+                  </div>
+                  {item.stage === "needs_tags" && (
+                    <p className="text-xs text-muted-foreground">Awaiting automated tagging pass.</p>
+                  )}
+                  {item.stage === "has_draft" && (
+                    <p className="text-xs text-muted-foreground">Review and save selected tags.</p>
+                  )}
                 </div>
               )}
             </CardContent>

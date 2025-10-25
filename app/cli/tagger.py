@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import random
 import sys
 import time
 from collections import Counter, defaultdict
@@ -804,6 +805,87 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"[run] completed run_id={run_id}")
 
 
+def cmd_benchmark(args: argparse.Namespace) -> None:
+    """
+    Run a benchmark of the core pipeline stages.
+    """
+    import random
+    
+    print(f"Starting benchmark on device: {args.device}")
+    
+    # 1. Get image list
+    all_images = scan_core.scan_directory(root=args.root, include_exts=scan_core.IMAGE_EXTENSIONS)
+    if len(all_images) < args.image_count:
+        print(f"Warning: Requested {args.image_count} images, but only {len(all_images)} found.")
+        images_to_benchmark = all_images
+    else:
+        images_to_benchmark = random.sample(all_images, args.image_count)
+    
+    print(f"Using {len(images_to_benchmark)} images for benchmark.")
+
+    # 2. Create benchmark run
+    run_id = f"benchmark_{_now()}"
+    run_path = _ensure_run_path(args.run_dir, run_id)
+    _write_image_paths(run_path, images_to_benchmark)
+    
+    timings = {}
+
+    # 3. Benchmark thumbnail generation
+    print("Benchmarking thumbnail generation...")
+    start_thumbs = time.time()
+    thumbs_core.build_thumbnails(
+        image_paths=images_to_benchmark,
+        cache_root=Path(args.run_dir) / "thumb_cache", # Use a dedicated cache for benchmark
+        overwrite=True,
+    )
+    timings["thumbnails"] = time.time() - start_thumbs
+    print(f"  -> Thumbnails took: {timings['thumbnails']:.2f}s")
+
+    # 4. Benchmark embedding
+    print("Benchmarking embedding...")
+    start_embed = time.time()
+    model, preprocess, _, device = clip_model.load_clip(device=args.device)
+    embeddings = clip_model.embed_images(
+        paths=images_to_benchmark,
+        model=model,
+        preprocess=preprocess,
+        device=device,
+    )
+    np.save(_image_embeddings_file(run_path), embeddings)
+    timings["embedding"] = time.time() - start_embed
+    print(f"  -> Embedding took: {timings['embedding']:.2f}s")
+
+    # 5. Benchmark scoring
+    print("Benchmarking scoring...")
+    # For scoring, we need labels. We'll use the default labels.
+    labels_list = labels_core.load_labels("labels.txt")
+    start_score = time.time()
+    _, _, tokenizer, _ = clip_model.load_clip(device=args.device)
+    label_embeddings = clip_model.embed_labels(labels=labels_list, model=model, tokenizer=tokenizer, device=device)
+    score_core.score_labels(
+        img_emb=embeddings,
+        txt_emb=label_embeddings,
+        labels=labels_list,
+    )
+    timings["scoring"] = time.time() - start_score
+    print(f"  -> Scoring took: {timings['scoring']:.2f}s")
+
+    # 6. Log results
+    total_time = sum(timings.values())
+    timings["total"] = total_time
+    timings["image_count"] = len(images_to_benchmark)
+    timings["device"] = args.device
+
+    benchmark_results_path = run_path / "benchmark_results.json"
+    _write_json(benchmark_results_path, timings)
+
+    print("\n--- Benchmark Summary ---")
+    for stage, duration in timings.items():
+        if isinstance(duration, float):
+            print(f"- {stage}: {duration:.2f}s")
+    print("-------------------------")
+    print(f"Results saved to: {benchmark_results_path}")
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Photo Tagger CLI")
     parser.add_argument("--run-dir", default="runs", help="Directory where run artifacts are stored")
@@ -951,6 +1033,20 @@ def build_parser() -> argparse.ArgumentParser:
     metrics_parser.add_argument("--dataset", required=True, help="Path to JSONL evaluation dataset")
     metrics_parser.add_argument("--k", type=int, default=5, help="K value for Precision@K computation")
     metrics_parser.set_defaults(func=cmd_metrics)
+
+    benchmark_parser = subparsers.add_parser("benchmark", help="Run pipeline performance benchmarks")
+    benchmark_parser.add_argument("--root", required=True, help="Root directory of images for benchmarking")
+    benchmark_parser.add_argument("--image_count", type=int, default=100, help="Number of images to use for benchmark")
+    benchmark_parser.add_argument("--device", default="cpu", help="Device to run benchmarks on (e.g., 'cpu', 'cuda')")
+    benchmark_parser.add_argument("--run-dir", default="runs", help="Directory where run artifacts are stored")
+    benchmark_parser.set_defaults(func=cmd_benchmark)
+
+    benchmark_parser = subparsers.add_parser("benchmark", help="Run pipeline performance benchmarks")
+    benchmark_parser.add_argument("--root", required=True, help="Root directory of images for benchmarking")
+    benchmark_parser.add_argument("--image_count", type=int, default=100, help="Number of images to use for benchmark")
+    benchmark_parser.add_argument("--device", default="cpu", help="Device to run benchmarks on (e.g., 'cpu', 'cuda')")
+    benchmark_parser.add_argument("--run-dir", default="runs", help="Directory where run artifacts are stored")
+    benchmark_parser.set_defaults(func=cmd_benchmark)
 
     return parser
 

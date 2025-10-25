@@ -60,6 +60,8 @@ export type ApiMedoidCluster = {
   cosine_to_centroid: number
 }
 
+export type ReviewStage = "new" | "needs_tags" | "has_draft" | "saved" | "blocked"
+
 export type ApiGalleryItem = {
   id: string
   filename: string
@@ -77,9 +79,26 @@ export type ApiGalleryItem = {
   label_source?: "scores" | "sidecar" | "fallback"
   requires_processing?: boolean
   labels: ApiLabel[]
+  stage: ReviewStage
+  first_seen: number
+  last_processed?: number | null
+  last_saved?: number | null
+  blocked_reason?: string | null
+  pending?: string[]
+  is_new?: boolean
+  is_modified?: boolean
 }
 
-export type GalleryResponse = ApiGalleryItem[]
+export type GalleryResponse = {
+  items: ApiGalleryItem[]
+  next_cursor?: string | null
+  has_more: boolean
+  total: number
+  summary: {
+    total: number
+    counts: Record<ReviewStage, number>
+  }
+}
 
 export type TagRequestPayload = {
   filename: string
@@ -100,8 +119,15 @@ export type ProcessResponse = {
   run_id?: string
 }
 
-export async function fetchGallery(): Promise<GalleryResponse> {
-  return request<GalleryResponse>("/api/gallery")
+export async function fetchGallery(cursor?: string, limit?: number, stageFilter?: ReviewStage): Promise<GalleryResponse> {
+  const params = new URLSearchParams()
+  if (cursor) params.append("cursor", cursor)
+  if (limit) params.append("limit", limit.toString())
+  if (stageFilter) params.append("stage", stageFilter)
+
+  const query = params.toString()
+  const url = query ? `/api/gallery?${query}` : "/api/gallery"
+  return request<GalleryResponse>(url)
 }
 
 export async function saveTag(payload: TagRequestPayload): Promise<{ status: string; saved: boolean }> {
@@ -132,6 +158,9 @@ export type ApiConfig = {
   max_images: number
   topk: number
   model_name: string
+  features?: {
+    llm_enhancer?: boolean
+  }
 }
 
 export async function fetchConfig(): Promise<ApiConfig> {
@@ -311,5 +340,12 @@ export async function resolveGraduation(labelId: string, action: "resolve" | "sk
 }> {
   return request(`/api/tags/graduations/${labelId}/resolve?action=${action}`, {
     method: "POST",
+  })
+}
+
+export async function prefetchThumbnails(paths?: string[], overwrite = false): Promise<{ job_id: string; scheduled: number }> {
+  return request("/api/thumbs/prefetch", {
+    method: "POST",
+    body: JSON.stringify({ paths: paths ?? [], overwrite }),
   })
 }

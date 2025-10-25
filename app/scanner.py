@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -155,11 +156,14 @@ def resolve_datetime(meta: Dict, cfg: Dict) -> Tuple[Optional[datetime], float, 
     return chosen, min(trust, 1.0), used
 
 
+import json
+
 def crawl(
     roots: Iterable[str],
     include_ext: Iterable[str],
     exclude_regex: Iterable[str],
     date_cfg: Optional[Dict] = None,
+    force_rescan: bool = False,
 ) -> List[Dict]:
     include = {ext.lower() for ext in include_ext}
     patterns = [re.compile(pat, re.IGNORECASE) for pat in exclude_regex]
@@ -167,6 +171,22 @@ def crawl(
 
     rows: List[Dict] = []
     seq = 0
+
+    if not roots:
+        return []
+
+    first_root = Path(roots[0])
+    cache_path = first_root / ".tagger_cache.json"
+    
+    cached_mtimes = {}
+    if not force_rescan and cache_path.exists():
+        try:
+            with open(cache_path, "r") as f:
+                cached_mtimes = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            cached_mtimes = {}
+
+    current_mtimes = {}
 
     for root in roots:
         root_path = Path(root)
@@ -186,6 +206,19 @@ def crawl(
                 except FileNotFoundError:
                     continue
 
+                # TIFF guardrail
+                if ext in {".tif", ".tiff"} and stat_res.st_size > 1 * 1024 * 1024 * 1024:  # 1GB
+                    continue
+
+                mtime = stat_res.st_mtime
+                
+                file_status = "new"
+                if full_path in cached_mtimes:
+                    if mtime == cached_mtimes[full_path]:
+                        file_status = "unchanged"
+                    else:
+                        file_status = "modified"
+
                 sha1 = sha1_file(full_path)
                 exif_meta = _read_exif_metadata(full_path)
                 width, height = _read_dimensions(full_path)
@@ -198,7 +231,7 @@ def crawl(
                     "ext": ext,
                     "sha1": sha1,
                     "bytes": stat_res.st_size,
-                    "mtime": stat_res.st_mtime,
+                    "mtime": mtime,
                     "ctime": stat_res.st_ctime,
                     "fs_mtime": fs_mtime,
                     "fs_ctime": fs_ctime,
@@ -206,6 +239,7 @@ def crawl(
                     "height": height,
                     **exif_meta,
                     "path_tokens": path_tokens,
+                    "status": file_status,
                 }
 
                 resolved_dt, trust, used = resolve_datetime(meta, date_cfg)
@@ -218,7 +252,15 @@ def crawl(
                 )
 
                 rows.append(meta)
+                current_mtimes[full_path] = mtime
                 seq += 1
+
+    # Save updated cache
+    try:
+        with open(cache_path, "w") as f:
+            json.dump(current_mtimes, f)
+    except IOError:
+        pass
 
     return rows
 

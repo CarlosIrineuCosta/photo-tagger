@@ -80,7 +80,7 @@ class EnhancedTagManager:
             is_synonym = canonical_name != raw_name
 
             existing_candidate = next((c for c in candidates if c.name == canonical_name), None)
-            if existing_candidate:
+            if existing_candidate and is_synonym:
                 if score > existing_candidate.score:
                     existing_candidate.score = score
                     if is_synonym:

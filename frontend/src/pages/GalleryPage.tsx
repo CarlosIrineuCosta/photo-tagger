@@ -1,21 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { CommandBar } from "@/components/CommandBar"
 import { GalleryGrid } from "@/components/GalleryGrid"
+import { NewFileBanner } from "@/components/NewFileBanner"
+import { PlaceholderCard } from "@/components/PlaceholderCard"
 import { WorkflowSidebar, type WorkflowStep } from "@/components/WorkflowSidebar"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
   exportData,
   fetchGallery,
+  prefetchThumbnails,
   processImages,
   saveTag,
   type ApiGalleryItem,
   type ApiLabel,
+  type ReviewStage,
+  type GalleryResponse,
 } from "@/lib/api"
 import { useStatusLog } from "@/context/status-log"
+import { useIntersectionObserver } from "@/hooks/useIntersectionObserver"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
 type FilterKey = "medoidsOnly" | "unapprovedOnly" | "hideAfterSave" | "centerCrop"
+
 
 type ItemState = {
   selected: string[]
@@ -43,7 +50,7 @@ export function GalleryPage() {
   const { push: pushStatus } = useStatusLog()
   const isMobile = useMediaQuery("(max-width: 1023px)")
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
-  const [pageSize, setPageSize] = useState(25)
+  const [stageFilter, setStageFilter] = useState<ReviewStage | "all">("all")
   const [workflowOpen, setWorkflowOpen] = useState(false)
   const [items, setItems] = useState<ApiGalleryItem[]>([])
   const [itemState, setItemState] = useState<Record<string, ItemState>>({})
@@ -51,6 +58,25 @@ export function GalleryPage() {
   const [error, setError] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)
   const [needsProcessing, setNeedsProcessing] = useState(true)
+
+  // Infinite scroll state
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [hasMore, setHasMore] = useState(true)
+  const [isPrefetching, setIsPrefetching] = useState(false)
+  const [summary, setSummary] = useState<GalleryResponse["summary"] | null>(null)
+  const cursorRef = useRef<string | undefined>(undefined)
+
+  const newCount = summary?.counts?.new ?? 0
+
+  useEffect(() => {
+    cursorRef.current = cursor
+  }, [cursor])
+
+  // Ref for intersection observer
+  const [loadMoreRef, isIntersecting] = useIntersectionObserver({
+    threshold: 0.1,
+    rootMargin: "100px",
+  })
 
   const normalizeList = useCallback((values: string[] | undefined) => {
     if (!values || values.length === 0) {
@@ -67,37 +93,65 @@ export function GalleryPage() {
     return a.every((value, index) => value === b[index])
   }, [])
 
-  const loadGallery = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await fetchGallery()
-      setItems(data)
-      const next: Record<string, ItemState> = {}
-      data.forEach((item) => {
-        const normalized = normalizeList(item.selected)
-        next[item.path] = {
-          selected: normalized,
-          original: normalized,
-          saved: item.saved ?? false,
+  const loadGallery = useCallback(
+    async (reset = false) => {
+      setLoading(true)
+      try {
+        const stageParam = stageFilter === "all" ? undefined : stageFilter
+        const currentCursor = reset ? undefined : cursorRef.current
+        const data = await fetchGallery(currentCursor, 50, stageParam)
+
+        let combinedItems: ApiGalleryItem[] = []
+        setItems((prev) => {
+          const base = reset ? [] : prev
+          combinedItems = [...base, ...data.items]
+          const nextState: Record<string, ItemState> = {}
+          combinedItems.forEach((item) => {
+            const normalized = normalizeList(item.selected)
+            nextState[item.path] = {
+              selected: normalized,
+              original: normalized,
+              saved: item.saved ?? false,
+            }
+          })
+          setItemState(nextState)
+          return combinedItems
+        })
+
+        setSummary(data.summary)
+        setCursor(data.next_cursor ?? undefined)
+        setHasMore(Boolean(data.has_more))
+        setError(null)
+
+        const requiresProcessing = combinedItems.some((item) => item.requires_processing)
+        setNeedsProcessing(requiresProcessing)
+        if (requiresProcessing && reset) {
+          pushStatus({ message: "Please run Process images again.", level: "info" })
         }
-      })
-      setItemState(next)
-      setError(null)
-      const requiresProcessing = data.some((item) => item.requires_processing)
-      if (requiresProcessing) {
-        pushStatus({ message: "Please run Process images again.", level: "warning" })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load gallery")
+      } finally {
+        setLoading(false)
       }
-      setNeedsProcessing(requiresProcessing)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load gallery")
-    } finally {
-      setLoading(false)
-    }
-  }, [normalizeList, pushStatus])
+    },
+    [cursorRef, normalizeList, pushStatus, stageFilter]
+  )
 
   useEffect(() => {
-    void loadGallery()
-  }, [loadGallery])
+    setCursor(undefined)
+    cursorRef.current = undefined
+    setHasMore(true)
+    setItems([])
+    setItemState({})
+    setSummary(null)
+    void loadGallery(true)
+  }, [stageFilter, loadGallery])
+
+  useEffect(() => {
+    if (isIntersecting && hasMore && !loading) {
+      void loadGallery(false)
+    }
+  }, [isIntersecting, hasMore, loading, loadGallery])
 
   const itemMap = useMemo(() => {
     const map: Record<string, ApiGalleryItem> = {}
@@ -165,8 +219,8 @@ export function GalleryPage() {
     }
 
     const sorted = [...filtered].sort((a, b) => priority(b.path) - priority(a.path))
-    return sorted.slice(0, pageSize)
-  }, [filters.hideAfterSave, filters.medoidsOnly, filters.unapprovedOnly, itemState, items, normalizeList, pageSize])
+    return sorted
+  }, [filters.hideAfterSave, filters.medoidsOnly, filters.unapprovedOnly, itemState, items, normalizeList])
 
   const handleSaveApproved = useCallback(() => {
     const entries = Object.entries(itemState)
@@ -223,13 +277,27 @@ export function GalleryPage() {
     [pushStatus]
   )
 
-  const handlePageSizeChange = useCallback(
-    (size: number) => {
-      setPageSize(size)
-      pushStatus({ message: `${size} images per page`, level: "info" })
-    },
-    [pushStatus]
-  )
+  const handlePrefetchThumbnails = useCallback(async () => {
+    if (isPrefetching) {
+      return
+    }
+    setIsPrefetching(true)
+    try {
+      const response = await prefetchThumbnails()
+      pushStatus({
+        message: `Thumbnail prefetch queued for ${response.scheduled} file${response.scheduled === 1 ? "" : "s"}.`,
+        level: response.scheduled ? "success" : "info",
+      })
+    } catch (err) {
+      pushStatus({
+        message: `Prefetch failed: ${err instanceof Error ? err.message : String(err)}`,
+        level: "error",
+      })
+    } finally {
+      setIsPrefetching(false)
+    }
+  }, [isPrefetching, pushStatus])
+
 
   const handleProcessImages = useCallback(async () => {
     if (processing) {
@@ -273,14 +341,17 @@ export function GalleryPage() {
       <CommandBar
         filters={filters}
         onFiltersChange={setFilters}
-        pageSize={pageSize}
-        onPageSizeChange={handlePageSizeChange}
         onProcessImages={handleProcessImages}
         onToggleWorkflow={() => setWorkflowOpen((prev) => !prev)}
         onSaveApproved={handleSaveApproved}
         onExport={handleExport}
         processing={processing}
         needsProcessing={needsProcessing}
+        stageFilter={stageFilter}
+        onStageFilterChange={(value) => {
+          setStageFilter(value)
+          pushStatus({ message: `Filter: ${value}`, level: "info" })
+        }}
       />
       <main className="mx-auto flex w-full max-w-[1920px] gap-3 px-3 py-5 lg:px-5 lg:py-6">
         {workflowOpen && !isMobile && (
@@ -290,15 +361,43 @@ export function GalleryPage() {
         )}
         <div className="flex-1">
           {error && <p className="pb-4 text-sm text-destructive">{error}</p>}
+          <NewFileBanner
+            newCount={newCount}
+            onPrefetchThumbnails={handlePrefetchThumbnails}
+            isPrefetching={isPrefetching}
+          />
           {loading && !items.length ? (
-            <p className="text-sm text-muted-foreground">Loading gallery…</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
+              {Array.from({ length: 12 }).map((_, index) => (
+                <PlaceholderCard key={index} className="h-[220px]" />
+              ))}
+            </div>
           ) : (
-            <GalleryGrid
-              items={visibleItems}
-              cropMode={filters.centerCrop}
-              itemState={itemState}
-              onToggleLabel={toggleLabelApproval}
-            />
+            <>
+              <GalleryGrid
+                items={visibleItems}
+                cropMode={filters.centerCrop}
+                itemState={itemState}
+                onToggleLabel={toggleLabelApproval}
+              />
+              {loading && items.length > 0 && (
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <PlaceholderCard key={`placeholder-${index}`} className="h-[220px]" />
+                  ))}
+                </div>
+              )}
+              {/* Load more trigger for infinite scroll */}
+              {hasMore && (
+                <div ref={loadMoreRef} className="flex justify-center py-4">
+                  {loading ? (
+                    <p className="text-sm text-muted-foreground">Loading more…</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Scroll to load more</p>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>

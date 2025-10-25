@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import base64
 import csv
 import json
 import os
 import subprocess
 import sys
 import threading
+import time
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
@@ -26,6 +28,7 @@ from app.core import label_pack as label_pack_core
 from app.core import labels as labels_core
 from app.core import scan as scan_core
 from app.core import thumbs as thumbs_core
+from app.state.models import ImageState, ReviewStage
 
 app = FastAPI(title="Photo Tagger API", version="0.1.0")
 
@@ -48,6 +51,8 @@ LABEL_SOURCE: Path | None = None
 LABEL_SIGNATURE: float | None = None
 LABEL_PACK: label_pack_core.LabelPack | None = None
 THUMB_CACHE: Dict[str, dict] = {}
+THUMB_PREFETCH_JOBS: Dict[str, dict] = {}
+STATE_VERSION = 1
 
 
 @app.get("/api/health")
@@ -107,6 +112,8 @@ def load_config() -> dict:
     data.setdefault("max_images", 100)
     data.setdefault("topk", 6)
     data.setdefault("model_name", "ViT-L-14")
+    data.setdefault("max_tiff_mb", 1024)
+    data.setdefault("apply_xmp_light", False)
     # ensure labels_file defaults to <root>/labels.txt if not provided or missing
     labels_value = data.get("labels_file")
     root_path = Path(data.get("root", ".")).expanduser()
@@ -152,16 +159,365 @@ def get_state(cfg: dict) -> Dict[str, dict]:
     global STATE_DATA
     with STATE_LOCK:
         if STATE_DATA is None:
-            STATE_DATA = _load_state_from_disk(cfg)
+            raw_state = _load_state_from_disk(cfg)
+            state, changed = _ensure_state_schema(raw_state)
+            STATE_DATA = state
+            if changed:
+                save_state(cfg, state)
         return STATE_DATA
 
 
 def save_state(cfg: dict, state: Dict[str, dict]) -> None:
     global STATE_DATA
+    state["_version"] = STATE_VERSION
     path = _state_path(cfg)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, indent=2, sort_keys=True)
     STATE_DATA = state
+
+
+def _ensure_state_schema(state: Dict[str, dict]) -> Tuple[Dict[str, dict], bool]:
+    changed = False
+    images = state.get("images")
+    if not isinstance(images, dict):
+        images = {}
+        state["images"] = images
+        changed = True
+
+    directory_index = state.get("directory_index")
+    if not isinstance(directory_index, dict):
+        directory_index = {}
+        state["directory_index"] = directory_index
+        changed = True
+
+    for path, entry in list(images.items()):
+        if not isinstance(entry, dict):
+            entry = {}
+            images[path] = entry
+            changed = True
+        image_state = ImageState.from_dict(entry)
+        image_state.selected = labels_core.normalize_labels(image_state.selected)
+        if image_state.saved:
+            image_state.stage = ReviewStage.SAVED
+        elif image_state.stage == ReviewStage.SAVED and not image_state.saved:
+            image_state.stage = ReviewStage.HAS_DRAFT if image_state.selected else ReviewStage.NEEDS_TAGS
+        images[path] = image_state.to_dict()
+
+    if state.get("_version") != STATE_VERSION:
+        state["_version"] = STATE_VERSION
+        changed = True
+
+    return state, changed
+
+
+def _get_image_state(images_state: Dict[str, dict], path: str) -> ImageState:
+    entry = images_state.get(path)
+    if not isinstance(entry, dict):
+        return ImageState(stage=ReviewStage.NEW)
+    return ImageState.from_dict(entry)
+
+
+def _set_image_state(images_state: Dict[str, dict], path: str, image_state: ImageState) -> None:
+    images_state[path] = image_state.to_dict()
+
+
+def _scan_with_metadata(root: Path, include_exts: Iterable[str], max_images: Optional[int]) -> Tuple[List[str], Dict[str, dict]]:
+    paths = scan_core.scan_directory(root=root, include_exts=include_exts, max_images=max_images)
+    metadata: Dict[str, dict] = {}
+    for raw_path in paths:
+        path = Path(raw_path)
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        metadata[raw_path] = {
+            "mtime": float(stat.st_mtime),
+            "size": int(stat.st_size),
+        }
+    return paths, metadata
+
+
+def _detect_directory_changes(
+    previous_index: Mapping[str, Mapping[str, float | int]],
+    current_index: Mapping[str, Mapping[str, float | int]],
+) -> Tuple[set[str], set[str], set[str]]:
+    previous_paths = set(previous_index.keys())
+    current_paths = set(current_index.keys())
+    new_paths = current_paths - previous_paths
+    removed_paths = previous_paths - current_paths
+    modified_paths: set[str] = set()
+    for path in current_paths & previous_paths:
+        previous = previous_index.get(path) or {}
+        current = current_index.get(path) or {}
+        if (previous.get("mtime"), previous.get("size")) != (current.get("mtime"), current.get("size")):
+            modified_paths.add(path)
+    return new_paths, modified_paths, removed_paths
+
+
+def _detect_blocked_files(
+    file_index: Mapping[str, Mapping[str, float | int]],
+    max_tiff_mb: float,
+) -> Dict[str, str]:
+    blocked: Dict[str, str] = {}
+    limit_bytes = max_tiff_mb * 1024 * 1024
+    for path, meta in file_index.items():
+        suffix = Path(path).suffix.lower()
+        size = int(meta.get("size", 0))
+        if suffix in {".tif", ".tiff"} and size > limit_bytes:
+            blocked[path] = "oversized_tiff"
+    return blocked
+
+
+def _encode_cursor(index: int) -> str:
+    raw = str(max(index, 0)).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_cursor(value: Optional[str]) -> int:
+    if not value:
+        return 0
+    try:
+        decoded = base64.urlsafe_b64decode(value.encode("ascii"))
+        return max(int(decoded.decode("utf-8")), 0)
+    except Exception:
+        return 0
+
+
+def _prune_removed_paths(state: Dict[str, dict], removed_paths: Iterable[str]) -> None:
+    images_state = state.setdefault("images", {})
+    directory_index = state.setdefault("directory_index", {})
+    for path in removed_paths:
+        images_state.pop(path, None)
+        directory_index.pop(path, None)
+
+
+def _resolve_review_stage(
+    path: str,
+    image_state: ImageState,
+    *,
+    blocked_reason: Optional[str],
+    is_new_path: bool,
+    is_modified_path: bool,
+) -> ReviewStage:
+    if blocked_reason:
+        return ReviewStage.BLOCKED
+    if is_new_path or (image_state.stage == ReviewStage.NEW and image_state.last_processed is None):
+        return ReviewStage.NEW
+    if image_state.saved:
+        if is_modified_path:
+            return ReviewStage.NEEDS_TAGS
+        return ReviewStage.SAVED
+    if image_state.selected:
+        return ReviewStage.HAS_DRAFT
+    return ReviewStage.NEEDS_TAGS
+
+
+def _prepare_gallery_records(cfg: dict) -> Tuple[List[dict], Dict[str, int], Dict[str, dict]]:
+    root = Path(cfg.get("root", ".")).expanduser()
+    max_images = cfg.get("max_images")
+    include_exts = scan_core.IMAGE_EXTENSIONS
+
+    paths, metadata = _scan_with_metadata(root, include_exts, max_images)
+    state = get_state(cfg)
+    images_state = state.setdefault("images", {})
+    directory_index = state.setdefault("directory_index", {})
+
+    new_paths, modified_paths, removed_paths = _detect_directory_changes(directory_index, metadata)
+    _prune_removed_paths(state, removed_paths)
+    blocked_map = _detect_blocked_files(metadata, float(cfg.get("max_tiff_mb", 1024)))
+
+    summary_counts = {stage.value: 0 for stage in ReviewStage}
+    records: List[dict] = []
+
+    for path in paths:
+        meta = metadata.get(path)
+        if meta is None:
+            continue
+
+        image_state = _get_image_state(images_state, path)
+
+        blocked_reason = blocked_map.get(path)
+        image_state.blocked_reason = blocked_reason
+
+        pending_reasons = [reason for reason in image_state.pending_reasons if reason != "modified"]
+        if path in modified_paths:
+            pending_reasons.append("modified")
+        image_state.pending_reasons = pending_reasons
+
+        stage = _resolve_review_stage(
+            path,
+            image_state,
+            blocked_reason=blocked_reason,
+            is_new_path=path in new_paths,
+            is_modified_path=path in modified_paths,
+        )
+
+        if stage != ReviewStage.SAVED:
+            image_state.saved = False
+        image_state.stage = stage
+
+        summary_counts[stage.value] = summary_counts.get(stage.value, 0) + 1
+        _set_image_state(images_state, path, image_state)
+        records.append(
+            {
+                "path": path,
+                "metadata": meta,
+                "state": image_state,
+                "is_new": path in new_paths,
+                "is_modified": path in modified_paths,
+            }
+        )
+
+    state["directory_index"] = metadata
+    return records, summary_counts, state
+
+
+def _load_run_context(
+    cfg: dict,
+    root: Path,
+) -> Tuple[Optional[Dict[str, dict]], Dict[str, Dict[str, object]], Path]:
+    run_dir = Path(cfg.get("run_dir", "runs"))
+    run_path = _latest_run_path(run_dir)
+    scores_map: Dict[str, dict] | None = None
+    medoid_map: Dict[str, Dict[str, object]] = {}
+    run_root_path = root
+    if run_path is not None:
+        run_meta = _load_run_metadata(run_path)
+        raw_root = run_meta.get("root")
+        if isinstance(raw_root, str) and raw_root:
+            try:
+                run_root_path = Path(raw_root).expanduser()
+            except Exception:
+                run_root_path = root
+        else:
+            run_root_path = root
+        scores_file = run_path / "scores.json"
+        if scores_file.exists():
+            try:
+                with scores_file.open("r", encoding="utf-8") as handle:
+                    entries = json.load(handle)
+                if isinstance(entries, list):
+                    scores_map = _build_scores_lookup(entries)
+            except json.JSONDecodeError:
+                scores_map = None
+        medoid_map = _load_medoid_map(run_path, run_root_path, run_meta)
+    return scores_map, medoid_map, run_root_path
+
+
+def _build_gallery_items(
+    records: List[dict],
+    *,
+    cfg: dict,
+    request: Request,
+    images_state: Dict[str, dict],
+    label_pool: List[str],
+    scores_map: Optional[Dict[str, dict]],
+    medoid_map: Dict[str, Dict[str, object]],
+    run_root_path: Path,
+) -> List[dict]:
+    cache_root = cfg.get("thumb_cache", "thumb_cache")
+    topk = int(cfg.get("topk", 6))
+    results: List[dict] = []
+
+    for record in records:
+        path = record["path"]
+        image_state: ImageState = record["state"]
+        is_new = bool(record.get("is_new"))
+        is_modified = bool(record.get("is_modified"))
+
+        if not Path(path).exists():
+            continue
+
+        thumb_info = _ensure_thumbnail(path, cache_root=cache_root)
+        thumb_url = str(request.url_for("get_thumbnail", thumb_name=f"{thumb_info['sha1']}.jpg"))
+        sidecar_labels = _extract_sidecar_keywords(path)
+
+        if not image_state.selected and sidecar_labels:
+            image_state.selected = sidecar_labels
+            image_state.saved = True
+            image_state.last_saved = image_state.last_saved or time.time()
+            image_state.stage = ReviewStage.SAVED
+
+        selected = labels_core.normalize_labels(image_state.selected)
+
+        thumb_path = thumb_info.get("thumbnail")
+        score_entry = None
+        if scores_map:
+            candidates = [path, str(Path(path).resolve()), Path(path).name]
+            if thumb_path:
+                candidates.extend([thumb_path, Path(thumb_path).name])
+            for candidate in candidates:
+                if candidate in scores_map:
+                    score_entry = scores_map[candidate]
+                    break
+
+        candidate_labels = label_pool
+        label_source = "fallback"
+        if score_entry:
+            topk_labels = score_entry.get("topk_labels")
+            if isinstance(topk_labels, list) and topk_labels:
+                candidate_labels = [str(label) for label in topk_labels if isinstance(label, str)]
+                label_source = "scores"
+        elif selected:
+            label_source = "sidecar"
+
+        requires_processing = label_source == "fallback" and not selected
+        if requires_processing:
+            labels = []
+        else:
+            labels = _build_gallery_labels(candidate_labels, selected, topk, Path(path).name.lower())
+
+        medoid_info = None
+        try:
+            absolute_path = str(Path(path).resolve())
+            medoid_info = medoid_map.get(absolute_path)
+        except Exception:
+            absolute_path = path
+        if medoid_info is None:
+            try:
+                relative_path = str(Path(path).resolve().relative_to(run_root_path.resolve())).replace("\\", "/")
+                medoid_info = medoid_map.get(relative_path)
+            except Exception:
+                medoid_info = medoid_map.get(path)
+
+        medoid_clusters = medoid_info.get("clusters", []) if medoid_info else []
+        medoid_folder = medoid_info.get("folder") if medoid_info else ""
+        medoid_cosine = medoid_info.get("cosine_to_centroid") if medoid_info else None
+        medoid_cluster_size = medoid_info.get("cluster_size") if medoid_info else None
+
+        # Persist any changes back into state
+        _set_image_state(images_state, path, image_state)
+
+        results.append(
+            {
+                "id": thumb_info["sha1"],
+                "filename": Path(path).name,
+                "path": path,
+                "thumb": thumb_url,
+                "width": thumb_info.get("width"),
+                "height": thumb_info.get("height"),
+                "medoid": bool(medoid_info),
+                "medoid_folder": medoid_folder,
+                "medoid_clusters": medoid_clusters,
+                "medoid_cluster_size": medoid_cluster_size,
+                "medoid_cosine_to_centroid": medoid_cosine,
+                "saved": image_state.saved,
+                "selected": selected,
+                "label_source": label_source,
+                "requires_processing": requires_processing,
+                "labels": [label.dict() for label in labels],
+                "stage": image_state.stage.value,
+                "first_seen": image_state.first_seen,
+                "last_processed": image_state.last_processed,
+                "last_saved": image_state.last_saved,
+                "blocked_reason": image_state.blocked_reason,
+                "pending": list(image_state.pending_reasons),
+                "is_new": is_new,
+                "is_modified": is_modified,
+            }
+        )
+
+    return results
 
 
 def get_label_pool(cfg: dict) -> List[str]:
@@ -387,7 +743,10 @@ def _load_medoid_map(
             "cluster_size": cluster_size,
             "cosine_to_centroid": cosine,
         }
-        entry["clusters"].append(cluster_entry)
+        clusters = entry.get("clusters", [])
+        if isinstance(clusters, list):
+            clusters.append(cluster_entry)
+            entry["clusters"] = clusters
         if cluster_type == "folder":
             entry["cluster_size"] = cluster_size
             entry["cosine_to_centroid"] = cosine
@@ -395,12 +754,15 @@ def _load_medoid_map(
         medoid_lookup.setdefault(rel_key, entry)
 
     for entry in medoid_lookup.values():
-        entry["clusters"].sort(
-            key=lambda cluster: (
-                {"folder": 0, "tag": 1, "embedding": 2}.get(cluster["cluster_type"], 3),
-                cluster.get("label_hint") or "",
+        clusters = entry.get("clusters", [])
+        if isinstance(clusters, list):
+            clusters.sort(
+                key=lambda cluster: (
+                    {"folder": 0, "tag": 1, "embedding": 2}.get(cluster.get("cluster_type", ""), 3),
+                    cluster.get("label_hint") or "",
+                )
             )
-        )
+            entry["clusters"] = clusters
 
     return medoid_lookup
 
@@ -433,6 +795,19 @@ class ProcessResponse(BaseModel):
     status: str
     run_id: str | None = None
     detail: str | None = None
+
+
+class GallerySummaryResponse(BaseModel):
+    total: int
+    counts: Dict[str, int]
+
+
+class GalleryPageResponse(BaseModel):
+    items: List[dict]
+    next_cursor: str | None = None
+    has_more: bool = False
+    total: int
+    summary: GallerySummaryResponse
 
 
 def _build_gallery_labels(
@@ -480,125 +855,100 @@ def _ensure_thumbnail(path: str, cache_root: str) -> dict:
     return info
 
 
-@app.get("/api/gallery")
-def get_gallery(request: Request):
+@app.get("/api/gallery", response_model=GalleryPageResponse)
+def get_gallery(request: Request, cursor: str | None = None, limit: int = 25, stage: str | None = None):
     cfg = load_config()
     root = Path(cfg.get("root", ".")).expanduser()
-    max_images = cfg.get("max_images")
-    cache_root = cfg.get("thumb_cache", "thumb_cache")
-    topk = int(cfg.get("topk", 6))
-    images = scan_core.scan_directory(root=root, max_images=max_images)
     label_pool = get_label_pool(cfg)
-    state = get_state(cfg)
+
+    records, summary_counts, state = _prepare_gallery_records(cfg)
     images_state = state.setdefault("images", {})
+    scores_map, medoid_map, run_root_path = _load_run_context(cfg, root)
 
-    run_dir = Path(cfg.get("run_dir", "runs"))
-    run_path = _latest_run_path(run_dir)
-    scores_map: Dict[str, dict] | None = None
-    medoid_map: Dict[str, Dict[str, object]] = {}
-    run_root_path = root
-    if run_path is not None:
-        run_meta = _load_run_metadata(run_path)
-        raw_root = run_meta.get("root")
-        if isinstance(raw_root, str) and raw_root:
-            try:
-                run_root_path = Path(raw_root).expanduser()
-            except Exception:
-                run_root_path = root
-        else:
-            run_root_path = root
-        scores_file = run_path / "scores.json"
-        if scores_file.exists():
-            try:
-                with scores_file.open("r", encoding="utf-8") as handle:
-                    entries = json.load(handle)
-                if isinstance(entries, list):
-                    scores_map = _build_scores_lookup(entries)
-            except json.JSONDecodeError:
-                scores_map = None
-        medoid_map = _load_medoid_map(run_path, run_root_path, run_meta)
-    gallery = []
-    for path in images:
-        if not Path(path).exists():
-            continue
-        thumb_info = _ensure_thumbnail(path, cache_root=cache_root)
-        thumb_url = str(request.url_for("get_thumbnail", thumb_name=f"{thumb_info['sha1']}.jpg"))
-        sidecar_labels = _extract_sidecar_keywords(path)
-        entry_state = images_state.get(path)
-        if entry_state:
-            selected = _normalize_labels(entry_state.get("selected", []))
-            saved = bool(entry_state.get("saved", False))
-        else:
-            selected = sidecar_labels
-            saved = bool(sidecar_labels)
-            if saved:
-                images_state[path] = {
-                    "selected": selected,
-                    "saved": True,
-                }
+    items = _build_gallery_items(
+        records,
+        cfg=cfg,
+        request=request,
+        images_state=images_state,
+        label_pool=label_pool,
+        scores_map=scores_map,
+        medoid_map=medoid_map,
+        run_root_path=run_root_path,
+    )
 
-        thumb_path = thumb_info.get("thumbnail")
-        score_entry = None
-        if scores_map:
-            candidates = [path, str(Path(path).resolve()), Path(path).name]
-            if thumb_path:
-                candidates.extend([thumb_path, Path(thumb_path).name])
-            for candidate in candidates:
-                if candidate in scores_map:
-                    score_entry = scores_map[candidate]
-                    break
-        candidate_labels = label_pool
-        label_source = "fallback"
-        if score_entry:
-            topk_labels = score_entry.get("topk_labels")
-            if isinstance(topk_labels, list) and topk_labels:
-                candidate_labels = [str(label) for label in topk_labels if isinstance(label, str)]
-                label_source = "scores"
-        elif selected:
-            label_source = "sidecar"
-        requires_processing = label_source == "fallback" and not selected
-        if requires_processing:
-            labels = []
-        else:
-            labels = _build_gallery_labels(candidate_labels, selected, topk, Path(path).name.lower())
-        medoid_info = None
+    if stage:
         try:
-            absolute_path = str(Path(path).resolve())
-            medoid_info = medoid_map.get(absolute_path)
-        except Exception:
-            absolute_path = path
-        if medoid_info is None:
-            try:
-                relative_path = str(Path(path).resolve().relative_to(run_root_path.resolve())).replace("\\", "/")
-                medoid_info = medoid_map.get(relative_path)
-            except Exception:
-                medoid_info = medoid_map.get(path)
-        medoid_clusters = medoid_info.get("clusters", []) if medoid_info else []
-        medoid_folder = medoid_info.get("folder") if medoid_info else ""
-        medoid_cosine = medoid_info.get("cosine_to_centroid") if medoid_info else None
-        medoid_cluster_size = medoid_info.get("cluster_size") if medoid_info else None
-        gallery.append(
-            {
-                "id": thumb_info["sha1"],
-                "filename": Path(path).name,
-                "path": path,
-                "thumb": thumb_url,
-                "width": thumb_info.get("width"),
-                "height": thumb_info.get("height"),
-                "medoid": bool(medoid_info),
-                "medoid_folder": medoid_folder,
-                "medoid_clusters": medoid_clusters,
-                "medoid_cluster_size": medoid_cluster_size,
-                "medoid_cosine_to_centroid": medoid_cosine,
-                "saved": saved,
-                "selected": selected,
-                "label_source": label_source,
-                "requires_processing": requires_processing,
-                "labels": [label.dict() for label in labels],
-            }
-        )
+            stage_value = ReviewStage(stage).value
+            items = [item for item in items if item["stage"] == stage_value]
+        except ValueError:
+            pass
+
     save_state(cfg, state)
-    return gallery
+
+    start_index = _decode_cursor(cursor)
+    page_size = max(1, min(limit or 25, 200))
+    end_index = min(len(items), start_index + page_size)
+    page_items = items[start_index:end_index]
+    has_more = end_index < len(items)
+    next_cursor = _encode_cursor(end_index) if has_more else None
+
+    summary = GallerySummaryResponse(total=len(items), counts=summary_counts)
+    return GalleryPageResponse(
+        items=page_items,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total=len(items),
+        summary=summary,
+    )
+
+
+@app.post("/api/thumbs/prefetch", response_model=ThumbPrefetchResponse)
+def prefetch_thumbnails(request_data: ThumbPrefetchRequest):
+    cfg = load_config()
+    state = get_state(cfg)
+    images_state = state.get("images", {})
+    raw_paths = request_data.paths or []
+    unique_paths = [path for path in dict.fromkeys(raw_paths) if Path(path).exists()]
+
+    if not unique_paths:
+        for path, payload in images_state.items():
+            if not isinstance(payload, dict):
+                continue
+            image_state = ImageState.from_dict(payload)
+            if image_state.stage == ReviewStage.NEW:
+                if Path(path).exists():
+                    unique_paths.append(path)
+
+    unique_paths = [path for path in dict.fromkeys(unique_paths)]
+
+    job_id = uuid.uuid4().hex[:12]
+    scheduled = len(unique_paths)
+    THUMB_PREFETCH_JOBS[job_id] = {
+        "status": "queued",
+        "processed": 0,
+        "total": scheduled,
+        "errors": [],
+    }
+
+    cache_root = cfg.get("thumb_cache", "thumb_cache")
+    processed = 0
+    errors: List[str] = []
+    for path in unique_paths:
+        try:
+            thumbs_core.build_thumbnail(path, cache_root=cache_root, overwrite=request_data.overwrite)
+            processed += 1
+        except Exception as exc:  # pragma: no cover - best effort utility
+            errors.append(f"{path}: {exc}")
+
+    status = "complete" if not errors else "error"
+    THUMB_PREFETCH_JOBS[job_id] = {
+        "status": status,
+        "processed": processed,
+        "total": scheduled,
+        "errors": errors,
+    }
+
+    return ThumbPrefetchResponse(job_id=job_id, scheduled=scheduled)
 
 
 @app.get("/api/thumbs/{thumb_name}")
@@ -694,6 +1044,39 @@ def update_config(update: ConfigUpdate):
     for key, value in update.model_dump(exclude_none=True).items():
         data[key] = value
     save_config(data)
+
+
+@app.post("/api/thumbs/prefetch")
+def prefetch_thumbnails():
+    """Prefetch thumbnails for all images."""
+    cfg = load_config()
+    root = Path(cfg.get("root", ".")).expanduser()
+    cache_root = cfg.get("thumb_cache", "thumb_cache")
+    max_images = cfg.get("max_images")
+
+    # Get all images
+    images = scan_core.scan_directory(root=root, max_images=max_images)
+
+    # Start background prefetch
+    def prefetch_worker():
+        prefetched = 0
+        for path in images:
+            if not Path(path).exists():
+                continue
+            try:
+                thumbs_core.build_thumbnail(path, cache_root=cache_root)
+                prefetched += 1
+            except Exception:
+                continue
+        return {"status": "completed", "prefetched": prefetched, "total": len(images)}
+
+    # Run in background thread
+    import threading
+    thread = threading.Thread(target=prefetch_worker)
+    thread.daemon = True
+    thread.start()
+
+    return {"status": "started", "message": "Thumbnail prefetch started in background"}
     # reset caches
     global STATE_DATA, LABEL_CACHE, LABEL_SOURCE, LABEL_PACK
     with STATE_LOCK:

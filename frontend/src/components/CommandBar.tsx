@@ -6,16 +6,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
+import { SegmentedControl } from "@/components/ui/segmented-control"
 import { Toggle } from "@/components/ui/toggle"
-import { cn } from "@/lib/utils"
+import type { ReviewStage } from "@/lib/api"
 
 type FilterKey = "medoidsOnly" | "unapprovedOnly" | "hideAfterSave" | "centerCrop"
 
 type CommandBarProps = {
   filters: Record<FilterKey, boolean>
   onFiltersChange: (next: Record<FilterKey, boolean>) => void
-  pageSize?: number
-  onPageSizeChange?: (size: number) => void
   onProcessImages?: () => void
   onExport?: (mode: "csv" | "sidecars" | "both") => void
   onToggleWorkflow?: () => void
@@ -23,22 +22,34 @@ type CommandBarProps = {
   processing?: boolean
   needsProcessing?: boolean
   saving?: boolean
+  stageFilter?: ReviewStage | "all"
+  onStageFilterChange?: (value: ReviewStage | "all") => void
+  summaryCounts?: Record<string, number>
 }
 
-const PAGE_SIZES = [25, 50, 100]
+
+const STAGE_OPTIONS: Array<{ value: ReviewStage | "all"; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "new", label: "New" },
+  { value: "needs_tags", label: "Needs tags" },
+  { value: "has_draft", label: "Draft" },
+  { value: "saved", label: "Saved" },
+  { value: "blocked", label: "Blocked" },
+]
 
 export function CommandBar({
   filters,
   onFiltersChange,
-  onPageSizeChange,
   onProcessImages,
   onExport,
-  pageSize = PAGE_SIZES[0],
   onToggleWorkflow,
   onSaveApproved,
   processing = false,
   needsProcessing = false,
   saving = false,
+  stageFilter = "all",
+  onStageFilterChange,
+  summaryCounts,
 }: CommandBarProps) {
   const handleFilterToggle = (key: FilterKey) => (pressed: boolean) => {
     onFiltersChange({ ...filters, [key]: pressed })
@@ -90,27 +101,48 @@ export function CommandBar({
         Center-crop
       </Toggle>
       <Separator orientation="vertical" className="h-8 bg-line" />
+
+      {/* Stage Filter */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">Stage:</span>
+        <SegmentedControl
+          value={stageFilter}
+          onValueChange={(value) => onStageFilterChange?.(value as ReviewStage | "all")}
+          options={STAGE_OPTIONS}
+          className="h-8"
+        />
+      </div>
+
+      {/* Stage Summary Chips */}
+      {(stageFilter === "all" || stageFilter === undefined) && (
+        <div className="flex items-center gap-2 ml-4">
+          <span className="text-xs text-muted-foreground">Summary:</span>
+          <div className="flex gap-1">
+            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+              New: <span className="font-bold">{summaryCounts?.new ?? 0}</span>
+            </span>
+            <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">
+              Needs Tags: <span className="font-bold">{summaryCounts?.needs_tags ?? 0}</span>
+            </span>
+            <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-1 text-xs font-medium text-orange-800">
+              Draft: <span className="font-bold">{summaryCounts?.has_draft ?? 0}</span>
+            </span>
+            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+              Saved: <span className="font-bold">{summaryCounts?.saved ?? 0}</span>
+            </span>
+            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+              Blocked: <span className="font-bold">{summaryCounts?.blocked ?? 0}</span>
+            </span>
+          </div>
+        </div>
+      )}
+
+      <Separator orientation="vertical" className="h-8 bg-line" />
       <Button size="sm" variant="outline" onClick={onSaveApproved} disabled={busy}>
         {saving ? "Saving…" : "Save approved"}
       </Button>
       <Separator orientation="vertical" className="ml-1 h-8 bg-line" />
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>Page size:</span>
-        <div className="flex gap-2">
-          {PAGE_SIZES.map((size) => (
-            <Button
-              key={size}
-              variant="ghost"
-              size="sm"
-              className={cn("h-8 px-3 text-xs", pageSize === size && "bg-panel-2 text-foreground")}
-              onClick={() => onPageSizeChange?.(size)}
-              disabled={busy}
-            >
-              {size}
-            </Button>
-          ))}
-        </div>
-      </div>
+
       <div className="ml-auto flex items-center gap-2">
         <Button size="sm" variant="outline" onClick={onToggleWorkflow} disabled={busy}>
           Workflow

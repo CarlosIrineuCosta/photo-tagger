@@ -43,6 +43,17 @@ const helpSections: HelpSection[] = [
     ],
   },
   {
+    title: "Tags management",
+    description: "The Tags page provides tools for managing structured label packs and orphan tags.",
+    items: [
+      { kind: "text", text: "Virtualized pill interface displays tags with frequency badges and search functionality." },
+      { kind: "text", text: "Drag and drop orphan tags into batch bins for quick promotion, exclusion, or review." },
+      { kind: "text", text: "Bulk promotion drawer allows selecting multiple tags and assigning target groups." },
+      { kind: "text", text: "Graduation review handles synonym resolution and canonical label management." },
+      { kind: "text", text: "LLM enhancer (when enabled) provides AI-powered tag suggestions with confidence scores." },
+    ],
+  },
+  {
     title: "CLI reference",
     description: "Match UI actions with their CLI counterparts when you need to run stages manually.",
     items: [

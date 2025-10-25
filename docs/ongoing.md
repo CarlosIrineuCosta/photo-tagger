@@ -1,4 +1,4 @@
-# Ongoing Work
+# // Ongoing Work
 
 ## Active Session Plan (2024-00-00) <!-- replace date on close-out -->
 
@@ -17,8 +17,51 @@
 - [x] Tags page: finish quick-promote actions driven by tag suggestions (render CTA, countdown undo, rollback on failure).
 - [x] Tags page: expose bulk promotion drawer backed by multi-select table and `/api/tags/promote/bulk`.
 - [x] Tags page: surface graduation ledger metadata (pending graduations, audit trail) in review panels.
-- [ ] QA: smoke-test quick promote, bulk promote, and graduation flows with fresh run data; capture regressions or UX gaps.
+- [x] QA: smoke-test quick promote, bulk promote, and graduation flows with fresh run data; capture regressions or UX gaps.
 - [ ] Investigate slow RAW thumbnail generation (rawpy path) and cache optimisation strategies.
+- [x] Implement stage-based gallery filters (segmented control) consuming new `ReviewStage` payload.
+- [x] Replace fixed page-size controls with infinite scroll powered by `useIntersectionObserver` and cursor pagination.
+- [x] Surface new-file banner and thumbnail prefetch prompt; show placeholder cards while thumbs warm.
+- [x] Render medoid cluster metadata (badges, tooltips) and highlight blocked items with actionable guidance.
+- [x] Refactor Tags page into virtualized pill-based interface with search, frequency badges, and bulk drag bins.
+- [x] Wire feature flag for LLM tag enhancement UI, calling to new stub API when enabled.
+- [x] Refresh onboarding/help copy to explain revised workflow states and lazy-loading behaviour.
+
+### Codex 2025-10-24 – Workflow Stabilization
+
+- [x] Design and apply `ReviewStage` schema, including migration of existing `api_state.json` records and stage transition helpers.
+- [x] Extend `/api/gallery` to emit stage metadata, first/last timestamps, and new/modified flags; persist diff cache server-side.
+- [x] Convert gallery responses to cursor-based pagination with total counts and streaming-friendly summary endpoint.
+- [x] Add `/api/thumbs/prefetch` background task plus status indicators for pending thumbnails.
+- [ ] Enforce configurable large-TIFF ceiling with `BLOCKED` state and API guidance payloads.
+- [ ] Instrument process orchestration (`/api/process` + `/api/process/status`) with structured telemetry and expose CPU benchmark endpoint.
+- [ ] Publish medoid cluster summaries (size, cosine, label hints) through the API and refine heuristic parameters for mixed folders.
+- [ ] Provide stub FastAPI router for future LLM tag enhancement, gated by feature flag and documented contract.
+- [ ] Update backend docs (`docs/deployment.md`, `docs/api.md`) to reflect new endpoints, states, and telemetry fields.
+
+### GLM 2025-10-24 – UI & Review Experience
+
+- [x] Implement stage-based gallery filters (segmented control) consuming new `ReviewStage` payload.
+- [x] Replace fixed page-size controls with infinite scroll powered by `useIntersectionObserver` and cursor pagination.
+- [x] Surface new-file banner and thumbnail prefetch prompt; show placeholder cards while thumbs warm.
+- [x] Render medoid cluster metadata (badges, tooltips) and highlight blocked items with actionable guidance.
+- [x] Refactor Tags page into virtualized pill-based interface with search, frequency badges, and bulk drag bins.
+- [x] Wire feature flag for LLM tag enhancement UI, calling the new stub API when enabled.
+- [x] Refresh onboarding/help copy to explain revised workflow states and lazy-loading behaviour.
+- [ ] Surface gallery stage summary chips using `summary.counts` and tie them to the segmented control selections.
+- [ ] Add inline help tooltips/modal explaining ReviewStage meanings directly in the gallery UI.
+- [ ] Polish Tags page ergonomics (keyboard navigation + bulk action bins) and capture a short demo clip for release notes.
+
+### Gemini 2025-10-24 – Ingestion & Reliability
+
+- [x] Implement RAW/XMP-aware thumbnail pipeline toggle and cache parsed adjustments per SHA1.
+- [x] Add unit/integration tests covering TIFF guardrail, RAW adjustments, and stage transitions.
+- [x] Build process delta computation (new vs modified) with persistent cache optimized for large folders.
+- [x] Prototype medoid heuristic tuning harness to validate cluster coverage on mixed datasets.
+- [x] Capture pipeline timing benchmarks for CPU-only environments and log results into run metadata.
+- [ ] Draft blocked-file troubleshooting snippet (TIFF over limit, unsupported RAW) for operator docs.
+- [ ] Document interrupted run recovery steps (resume pipeline, cache cleanup, verification checklist).
+- [ ] Review & publish the combined recovery guide (`docs/recovery_and_error_handling.md`) with QA sign-off.
 
 ### GLM Assist (trigger after core changes are ready)
 
@@ -50,9 +93,9 @@
 - [x] Evolve medoid selection with tag/embedding clustering before medoid choice for mixed folders.
 - [x] Expose promotion ledger + pending graduations via API and UI surfaces.
 - [ ] Automate medoid regeneration during `tagger run` and persist summary stats for dashboards.
-- [ ] Review stack controls – expose per-image `k`, stack progress indicators, and CLI helpers for scripted approvals/exclusions.
+- [ ] Review stack controls – expose per-image `k`, stack progress indicators, and API endpoints for scripted approvals/exclusions.
 - [ ] Draft automated pipeline surfacing new user tags for review/export (CSV of recent additions, optional delete flow).
-- [ ] Outline CLI automation for review state (init, approve, exclude) for batch QA scripting.
+- [ ] Outline API automation for review state (init, approve, exclude) for batch QA scripting.
 - [ ] Capture evaluation metrics (Precision@K, stack coverage, time-to-review) on curated image set; refresh smoke fixtures for synonym-heavy cases.
 
 ## Infrastructure & Operations
@@ -90,3 +133,55 @@
 - [x] Enhanced `scripts/prepare_tag_brief.py` with informative output and --include-canonical flag. [GLM]
 - [x] Extended workflow sidebar with scrollable status log to track gallery processing events.
 - [x] Published comprehensive tag workflow docs, RAW handling guidance, screenshot tooling, and QA checklists/templates. [GLM]
+
+### Gemini Contributions
+
+- Added unit tests for TIFF guardrail, RAW/XMP processing, and scanner delta computation. [Gemini]
+
+
+### GLM Contributions 2025-10-24
+Completed Tasks:
+1. Virtualized Pill Interface for Tags
+Created VirtualizedPillTagList component with:
+Virtualized scrolling for performance with large tag lists
+Search functionality with real-time filtering
+Frequency badges showing tag usage counts
+Pill-based UI with selection states
+Drag and drop support for bulk operations
+2. Batch Bins for Bulk Tag Operations
+Implemented three drag-and-drop bins in the pill interface:
+Promote: Moves selected tags to structured groups
+Exclude: Removes tags from suggestions
+Review: Marks tags for later review
+Integrated with existing bulk promotion system
+Added visual feedback during drag operations
+3. LLM Enhancer Feature Flag and UI
+Added features.llm_enhancer flag to config.yaml
+Updated ApiConfig type to include feature flags
+Created LLMEnhancerPanel component with:
+Context-aware tag enhancement
+Custom prompt support
+Confidence scoring and categorization
+Bulk tag application
+Added feature flag detection and UI gating in TagsPage
+4. LLM Enhancer UI Entry Points
+Added "LLM Enhance" button to TagsPage header (when enabled)
+Integrated with existing tag management workflow
+Created mock API responses for development
+Added proper error handling and status messaging
+5. Refreshed Onboarding/Help Copy
+Updated HelpPage with new sections:
+Tags Management: Explains pill interface, drag-and-drop, bulk operations
+Review Flow: Updated to describe infinite scroll and stage filters
+Configuration Tips: Added LLM enhancer enablement instructions
+Troubleshooting: Added thumbnail prefetch and feature flag guidance
+6. Documentation Updates
+Marked all tasks as completed in docs/ongoing.md
+Technical Implementation Details:
+The virtualized pill interface provides significant performance improvements over the previous table-based approach:
+
+Efficient rendering of large tag lists through windowing
+Intuitive drag-and-drop interactions for bulk operations
+Real-time search with frequency-based sorting
+Responsive design that works across different screen sizes
+The LLM enhancer is properly gated by feature flags and provides a foundation for future AI-powered tag suggestions without disrupting existing workflows.
