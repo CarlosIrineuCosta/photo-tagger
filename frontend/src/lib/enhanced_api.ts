@@ -4,6 +4,62 @@
 
 import type { ApiGalleryItem, ApiLabel } from "./api"
 
+const explicitBaseEnv =
+  (typeof import.meta !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE
+    ? String((import.meta as any).env.VITE_API_BASE).trim()
+    : undefined) ??
+  (typeof process !== "undefined" && process.env?.VITE_API_BASE
+    ? String(process.env.VITE_API_BASE).trim()
+    : undefined)
+
+const EXPLICIT_API_BASE = explicitBaseEnv ? explicitBaseEnv.replace(/\/$/, "") : null
+
+function buildUrl(path: string, base: string | null): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`
+  return base ? `${base}${normalizedPath}` : normalizedPath
+}
+
+async function performRequest<T>(path: string, base: string | null, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has("Content-Type") && init?.body) {
+    headers.set("Content-Type", "application/json")
+  }
+
+  const response = await fetch(
+    buildUrl(path, base),
+    {
+      ...init,
+      headers,
+    }
+  )
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || `Request failed with status ${response.status}`)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return (await response.json()) as T
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (EXPLICIT_API_BASE) {
+    try {
+      return await performRequest<T>(path, EXPLICIT_API_BASE, init)
+    } catch (error) {
+      if (error instanceof TypeError) {
+        // Network error when using explicit base — fall back to same-origin proxy.
+        return await performRequest<T>(path, null, init)
+      }
+      throw error
+    }
+  }
+  return performRequest<T>(path, null, init)
+}
+
 export interface TagCandidate {
   name: string
   score: number
@@ -65,95 +121,48 @@ export class EnhancedTaggingAPI {
   /**
    * Process tag scores using the enhanced tagging system.
    */
-  static async processTags(request: EnhancedTagRequest): Promise<EnhancedTagResponse> {
-    const response = await fetch("/api/enhanced/process-tags", {
+  static async processTags(requestData: EnhancedTagRequest): Promise<EnhancedTagResponse> {
+    return request<EnhancedTagResponse>("/api/enhanced/process-tags", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestData),
     })
-
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(message || `Request failed with status ${response.status}`)
-    }
-
-    return response.json()
   }
 
   /**
    * Exclude a tag and get the next best candidate from the stack.
    */
-  static async excludeTag(request: ExcludeTagRequest): Promise<ExcludeTagResponse> {
-    const response = await fetch("/api/enhanced/exclude-tag", {
+  static async excludeTag(requestData: ExcludeTagRequest): Promise<ExcludeTagResponse> {
+    return request<ExcludeTagResponse>("/api/enhanced/exclude-tag", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestData),
     })
-
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(message || `Request failed with status ${response.status}`)
-    }
-
-    return response.json()
   }
 
   /**
    * Add a user tag and process it through the post-processor.
    */
-  static async addUserTag(request: AddUserTagRequest): Promise<AddUserTagResponse> {
-    const response = await fetch("/api/enhanced/add-user-tag", {
+  static async addUserTag(requestData: AddUserTagRequest): Promise<AddUserTagResponse> {
+    return request<AddUserTagResponse>("/api/enhanced/add-user-tag", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestData),
     })
-
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(message || `Request failed with status ${response.status}`)
-    }
-
-    return response.json()
   }
 
   /**
    * Get the current synonym map.
    */
   static async getSynonyms(): Promise<SynonymMapResponse> {
-    const response = await fetch("/api/enhanced/synonyms")
-
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(message || `Request failed with status ${response.status}`)
-    }
-
-    return response.json()
+    return request<SynonymMapResponse>("/api/enhanced/synonyms")
   }
 
   /**
    * Update the synonym map.
    */
   static async updateSynonyms(synonymMap: Record<string, string>): Promise<{ status: string; updated_count: number }> {
-    const response = await fetch("/api/enhanced/update-synonyms", {
+    return request<{ status: string; updated_count: number }>("/api/enhanced/update-synonyms", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify(synonymMap),
     })
-
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(message || `Request failed with status ${response.status}`)
-    }
-
-    return response.json()
   }
 
   /**

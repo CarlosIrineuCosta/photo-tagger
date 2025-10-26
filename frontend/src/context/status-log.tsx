@@ -20,10 +20,14 @@ export function StatusLogProvider({ initialEntries, children }: StatusLogProvide
   const [entries, setEntries] = useState<StatusEntry[]>(initialEntries)
 
   const push = useCallback<StatusLogContextValue["push"]>((entry) => {
-    const id = entry.id ?? crypto.randomUUID()
+    const randomId =
+      entry.id ??
+      (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `status-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
     const timestamp = entry.timestamp ?? new Date().toLocaleTimeString()
     setEntries((prev) => {
-      const next = [...prev, { ...entry, id, timestamp }]
+      const next = [...prev, { ...entry, id: randomId, timestamp }]
       if (next.length > 20) {
         return next.slice(next.length - 20)
       }

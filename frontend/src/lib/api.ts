@@ -1,4 +1,11 @@
-const explicitBaseEnv = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
+const explicitBaseEnv =
+  (typeof import.meta !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE
+    ? String((import.meta as any).env.VITE_API_BASE).trim()
+    : undefined) ??
+  (typeof process !== "undefined" && process.env?.VITE_API_BASE
+    ? String(process.env.VITE_API_BASE).trim()
+    : undefined)
+
 const EXPLICIT_API_BASE = explicitBaseEnv ? explicitBaseEnv.replace(/\/$/, "") : null
 
 function buildUrl(path: string, base: string | null): string {
@@ -355,4 +362,16 @@ export async function prefetchThumbnails(paths?: string[], overwrite = false): P
     method: "POST",
     body: JSON.stringify({ paths: paths ?? [], overwrite }),
   })
+}
+
+export type PrefetchJobStatus = {
+  job_id: string
+  status: "queued" | "processing" | "complete" | "error"
+  processed: number
+  total: number
+  errors: string[]
+}
+
+export async function getPrefetchJobStatus(jobId: string): Promise<PrefetchJobStatus> {
+  return request(`/api/thumbs/prefetch/${jobId}`)
 }

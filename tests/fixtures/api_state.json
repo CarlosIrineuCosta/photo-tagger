@@ -1,0 +1,619 @@
+{
+  "_version": 1,
+  "blocked_reason_counts": {},
+  "directory_index": {
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_000.jpg": {
+      "mtime": 1761024023.8007324,
+      "size": 5431
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_001.jpg": {
+      "mtime": 1761024023.8027325,
+      "size": 5430
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_002.jpg": {
+      "mtime": 1761024023.8057325,
+      "size": 5430
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_003.jpg": {
+      "mtime": 1761024023.8077326,
+      "size": 5431
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_004.jpg": {
+      "mtime": 1761024023.8097324,
+      "size": 5430
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_005.jpg": {
+      "mtime": 1761024023.8117325,
+      "size": 5429
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_006.jpg": {
+      "mtime": 1761024023.8137326,
+      "size": 5430
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_007.jpg": {
+      "mtime": 1761024023.8157325,
+      "size": 5429
+    }
+  },
+  "images": {
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/20240529_170337.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "cabinet",
+        "cupboard",
+        "glass",
+        "porcelain",
+        "shelf",
+        "teapot"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/20240620_094919.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "computer",
+        "corcovado 65",
+        "desk",
+        "landscape",
+        "monitor",
+        "office",
+        "portrait"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/Abstract_DSC1242.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "black and white",
+        "high contrast",
+        "electrical circuit"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/AdobeStock_586094351_Preview.jpeg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "minimalism",
+        "room",
+        "television"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/IMAGE#e823529e-db9b-4591-b8b2-b64d6f746277.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "body",
+        "lingerie"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/JB_RestPURO_NEF1495-HDR.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "architecture photography",
+        "restaurant",
+        "table"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/JB_RestPURO_NEF1571.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "architecture photography",
+        "restaurant"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/JB_restaurants_NEF0301 - Jojo.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "architecture photography",
+        "editorial",
+        "restaurant",
+        "street"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/NegativeScans_D800_NEF8243-1.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "art photo",
+        "boat"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/SalaoAutomovel_SP_20141107__NEF5808.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "editorial",
+        "headshot",
+        "portrait",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/Screenshot 2024-07-24 000703.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "fine art",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/Screenshot 2024-08-28 210236.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "cloth",
+        "editorial",
+        "fashion photography",
+        "studio shot",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/Screenshot 2024-09-12 124709.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "fine art",
+        "room"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/Screenshot 2024-09-12 124853.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "gallery",
+        "screen",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/TeatroBotafogo_DSC7519.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "theatrical photography"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/TensorArt - Route66 - Mustang01.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "car",
+        "car mustang",
+        "editorial",
+        "fine art",
+        "sunset",
+        "vintage look"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/ViscCarand_XX_Puro_91-HDR-Edit.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "chair",
+        "editorial",
+        "interior architecture shot",
+        "restaurant",
+        "table"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/a_smoky_dim_lit_jazz_bar_viewed_from_the_pov_of_the_musicians_stage_5e063bed-ff32-4460-bf63-5d2ce382d821.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "microphone",
+        "microphone stand",
+        "stage"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__You_have_to_move_so_you_can_stand_still_8c1c3299-eaed-49c5-a5ab-829640c41bb5.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "fine art",
+        "painting",
+        "stairway",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__as_painting_in_the_corner_of_a_room_looking_at_cartoo_62b364fa-ff38-4165-a308-1e403e014996.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "apartment",
+        "chair",
+        "color red",
+        "illustration",
+        "lobby",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__beautiful_face_tall_chinese_model_cyber_organic_head__f4500e86-c5b1-40ef-993d-38ced126614c.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai photograph",
+        "fashion photography",
+        "futuristic",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__egyptian_god_Horus_god_of_healing_and_protection_as_a_c51a0470-4105-4460-9006-5cee4862cf61.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "bird",
+        "bronze sculpture",
+        "sculpture"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__female_legs_hanging_over_an_empty_pool_in_the_style_o_133c12d6-936d-41e5-8317-9022d98597d1.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "minimalism",
+        "product photography",
+        "shoes"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__woman_in_Venice_dressed_for_venetian_carnival_unmaske_1833cf43-aafc-41c8-9ce1-bfe14be087a4.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "fashion photography",
+        "film look",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/charlesk__zen_monk_meditading_looking_at_camera_japanese_mounta_ef7c2004-9008-4b8c-89bd-81f1b5198e54.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "buddhist monk",
+        "man",
+        "monk",
+        "mountain",
+        "zen meditation"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/untitleduntitled shoot_NEF2094.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "balcony",
+        "facade",
+        "old house",
+        "rio de janeiro"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/untitleduntitled shoot_NEF2118.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "bar",
+        "outdoors",
+        "people",
+        "rio de janeiro",
+        "street"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/untitleduntitled shoot_NEF2136.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "building",
+        "facade",
+        "old house",
+        "rio de janeiro",
+        "street"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/images/workspace_images_615315221464083332_ffb85c41173ba13c88f6674fe1422532.png": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "ai image",
+        "brunette",
+        "lingerie",
+        "studio shot",
+        "woman"
+      ],
+      "stage": "saved"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_000.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_001.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_002.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_003.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_004.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_005.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_006.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "/home/cdc/Storage/projects/photo-tagger/tests/smoke/photos/smoke_007.jpg": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": false,
+      "selected": [],
+      "stage": "new"
+    },
+    "49be6a6a1728c0a6ab44c4ea31b3bae25ac2c1b7": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "night"
+      ],
+      "stage": "saved"
+    },
+    "522732fa0dd72903ff78ee1c3487ffc8144d3eaa": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "urban"
+      ],
+      "stage": "saved"
+    },
+    "70309a477f65862aeb5e67bfbc08397573bfd2c5": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "portrait"
+      ],
+      "stage": "saved"
+    },
+    "9e6e6a417e3c3bc2093eec188654dd83ce336a31": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "portrait"
+      ],
+      "stage": "saved"
+    },
+    "c827d36e7491b3c1d72bee3ecb04bd63f7b7c91a": {
+      "blocked_reason": null,
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "pending_reasons": [],
+      "saved": true,
+      "selected": [
+        "night"
+      ],
+      "stage": "saved"
+    }
+  }
+}

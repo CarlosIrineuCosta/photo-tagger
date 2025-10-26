@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { CommandBar } from "@/components/CommandBar"
 import { BlockingOverlay } from "@/components/BlockingOverlay"
@@ -11,10 +11,13 @@ import {
   processImages,
   saveTag,
   type ApiGalleryItem,
+  type GalleryResponse,
+  type ReviewStage,
 } from "@/lib/api"
 import EnhancedTaggingAPI, { type EnhancedGalleryItem, type TagCandidate } from "@/lib/enhanced_api"
 import { useStatusLog } from "@/context/status-log"
 import { useMediaQuery } from "@/hooks/use-media-query"
+import { useIntersectionObserver } from "@/hooks/useIntersectionObserver"
 
 type FilterKey = "medoidsOnly" | "unapprovedOnly" | "hideAfterSave" | "centerCrop"
 
@@ -58,6 +61,15 @@ export function GalleryPageEnhanced() {
   const [recentlySaved, setRecentlySaved] = useState<string[]>([])
   const [blockingMessage, setBlockingMessage] = useState<{ title: string; message?: string; tone?: "default" | "warning" } | null>(null)
   const [workflowMessages, setWorkflowMessages] = useState<WorkflowMessage[]>([])
+  const [summary, setSummary] = useState<GalleryResponse["summary"] | null>(null)
+  const [stageFilter, setStageFilter] = useState<ReviewStage | "all">("all")
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const cursorRef = useRef<string | undefined>(undefined)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadMoreRef, isIntersecting] = useIntersectionObserver({
+    threshold: 0.1,
+    rootMargin: "120px",
+  })
 
   const appendWorkflowMessage = useCallback((text: string, tone: WorkflowMessage["tone"] = "info") => {
     const id =
@@ -106,71 +118,103 @@ export function GalleryPageEnhanced() {
     []
   )
 
-  const loadGallery = useCallback(async () => {
-    setLoading(true)
-    setBlockingMessage({ title: "Loading gallery…", message: "Fetching latest tags and thumbnails.", tone: "warning" })
-    try {
-      const data = await fetchGallery()
-      const requiresProcessing = data.some((item) => item.requires_processing)
+  useEffect(() => {
+    cursorRef.current = cursor
+  }, [cursor])
 
-      pushStatus({ message: "Processing tags with enhanced system..." })
+  const loadGallery = useCallback(
+    async (reset = false) => {
+      setLoading(true)
+      if (reset) {
+        setBlockingMessage({ title: "Loading gallery…", message: "Fetching latest tags and thumbnails.", tone: "warning" })
+      }
       try {
-        const enhancedItems = await EnhancedTaggingAPI.enhanceGalleryItems(data)
-        setItems(enhancedItems)
+        const stageParam = stageFilter === "all" ? undefined : stageFilter
+        const currentCursor = reset ? undefined : cursorRef.current
+        const data = await fetchGallery(currentCursor, pageSize, stageParam)
+        const apiItems = Array.isArray(data?.items) ? data.items : []
 
-        const next: Record<string, ItemState> = {}
-        enhancedItems.forEach((item) => {
+        let enhancedBatch: EnhancedGalleryItem[] = []
+        try {
+          enhancedBatch = await EnhancedTaggingAPI.enhanceGalleryItems(apiItems)
+          if (enhancedBatch.length > 0) {
+            pushStatus({ message: `Enhanced processing complete for ${enhancedBatch.length} images`, level: "success" })
+            if (reset) {
+              appendWorkflowMessage(`Enhanced processing complete for ${enhancedBatch.length} images.`, "success")
+            }
+          }
+        } catch (err) {
+          console.error("Enhanced processing failed:", err)
+          pushStatus({ message: "Enhanced processing failed; using baseline tags.", level: "error" })
+          appendWorkflowMessage("Enhanced processing failed; using baseline tags.", "warning")
+          enhancedBatch = convertToEnhancedItems(apiItems)
+        }
+
+        if (enhancedBatch.length === 0 && apiItems.length > 0) {
+          enhancedBatch = convertToEnhancedItems(apiItems)
+        }
+
+        let combined: EnhancedGalleryItem[] = []
+        setItems((prev) => {
+          const base = reset ? [] : prev
+          combined = [...base, ...enhancedBatch]
+          return combined
+        })
+
+        const nextState: Record<string, ItemState> = {}
+        combined.forEach((item) => {
           const normalized = normalizeList(item.selected)
-          next[item.path] = {
+          nextState[item.path] = {
             selected: normalized,
             original: normalized,
             saved: item.saved ?? false,
             excluded_tags: item.excluded_tags || [],
-            tag_stack: item.tag_stack || []
+            tag_stack: item.tag_stack || [],
           }
         })
-        setItemState(next)
-        pushStatus({ message: `Enhanced processing complete for ${enhancedItems.length} images`, level: "success" })
-        appendWorkflowMessage(`Enhanced processing complete for ${enhancedItems.length} images.`, "success")
-      } catch (err) {
-        console.error("Enhanced processing failed:", err)
-        pushStatus({ message: "Enhanced processing failed; using baseline tags.", level: "error" })
-        appendWorkflowMessage("Enhanced processing failed; using baseline tags.", "warning")
-        const converted = convertToEnhancedItems(data)
-        setItems(converted)
-        const fallbackState: Record<string, ItemState> = {}
-        converted.forEach((item) => {
-          const normalized = normalizeList(item.selected)
-          fallbackState[item.path] = {
-            selected: normalized,
-            original: normalized,
-            saved: item.saved ?? false,
-            excluded_tags: [],
-            tag_stack: []
-          }
-        })
-        setItemState(fallbackState)
-      }
+        setItemState(nextState)
 
-      setError(null)
-      if (requiresProcessing) {
-        pushStatus({ message: "Please run Process images again.", level: "warning" })
-        appendWorkflowMessage("Images require reprocessing. Run Process images again.", "warning")
+        setSummary(data?.summary ?? null)
+        setCursor(data?.next_cursor ?? undefined)
+        setHasMore(Boolean(data?.has_more))
+        const requiresProcessing = combined.some((item) => item.requires_processing)
+        setNeedsProcessing(requiresProcessing)
+        if (requiresProcessing && reset) {
+          pushStatus({ message: "Please run Process images again.", level: "info" })
+          appendWorkflowMessage("Images require reprocessing. Run Process images again.", "warning")
+        }
+        setError(null)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load gallery"
+        setError(message)
+        setSummary(null)
+        appendWorkflowMessage(`Gallery load failed: ${message}`, "error")
+      } finally {
+        setLoading(false)
+        if (reset) {
+          setBlockingMessage(null)
+        }
       }
-      setNeedsProcessing(requiresProcessing)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load gallery"
-      setError(message)
-      appendWorkflowMessage(`Gallery load failed: ${message}`, "error")
-    } finally {
-      setLoading(false)
-      setBlockingMessage(null)
-    }
-  }, [appendWorkflowMessage, convertToEnhancedItems, normalizeList, pushStatus])
+    },
+    [appendWorkflowMessage, convertToEnhancedItems, normalizeList, pageSize, pushStatus, stageFilter]
+  )
 
   useEffect(() => {
-    void loadGallery()
-  }, [loadGallery])
+    setCursor(undefined)
+    cursorRef.current = undefined
+    setHasMore(true)
+    setItems([])
+    setItemState({})
+    setSummary(null)
+    setError(null)
+    void loadGallery(true)
+  }, [loadGallery, stageFilter])
+
+  useEffect(() => {
+    if (isIntersecting && hasMore && !loading) {
+      void loadGallery(false)
+    }
+  }, [hasMore, isIntersecting, loadGallery, loading])
 
   const itemMap = useMemo(() => {
     const map: Record<string, EnhancedGalleryItem> = {}
@@ -428,8 +472,8 @@ export function GalleryPageEnhanced() {
     }
 
     const sorted = [...filtered].sort((a, b) => priority(b.path) - priority(a.path))
-    return sorted.slice(0, pageSize)
-  }, [filters.hideAfterSave, filters.medoidsOnly, filters.unapprovedOnly, itemState, items, normalizeList, pageSize, recentlySaved])
+    return sorted
+  }, [filters.hideAfterSave, filters.medoidsOnly, filters.unapprovedOnly, itemState, items, normalizeList, recentlySaved])
 
   const handleSaveApproved = useCallback(() => {
     const entries = Object.entries(itemState)
@@ -457,7 +501,7 @@ export function GalleryPageEnhanced() {
           ...toSave.map(([path, state]) => saveTag({ filename: path, approved_labels: state.selected })),
           ...toClear.map(([path]) => saveTag({ filename: path, approved_labels: [] })),
         ])
-        await loadGallery()
+        await loadGallery(true)
         setRecentlySaved(toSavePaths)
         const savedCount = toSave.length
         pushStatus({
@@ -504,7 +548,13 @@ export function GalleryPageEnhanced() {
       pushStatus({ message: `${size} images per page`, level: "info" })
       appendWorkflowMessage(`Adjusted gallery page size to ${size} images.`, "info")
       void (async () => {
-        await loadGallery()
+        cursorRef.current = undefined
+        setCursor(undefined)
+        setHasMore(true)
+        setItems([])
+        setItemState({})
+        setSummary(null)
+        await loadGallery(true)
         setBlockingMessage(null)
       })()
     },
@@ -529,7 +579,7 @@ export function GalleryPageEnhanced() {
         level: "success",
       })
       appendWorkflowMessage(`Processing complete (${runLabel}).`, "success")
-      await loadGallery()
+      await loadGallery(true)
       setNeedsProcessing(false)
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
@@ -569,6 +619,9 @@ export function GalleryPageEnhanced() {
         processing={processing}
         needsProcessing={needsProcessing}
         saving={saving}
+        stageFilter={stageFilter}
+        onStageFilterChange={setStageFilter}
+        summaryCounts={summary?.counts}
       />
       {saving ? (
         <BlockingOverlay
@@ -603,14 +656,25 @@ export function GalleryPageEnhanced() {
           {loading && !items.length ? (
             <p className="text-sm text-muted-foreground">Loading gallery…</p>
           ) : (
-            <GalleryGridEnhanced
-              items={visibleItems}
-              cropMode={filters.centerCrop}
-              itemState={itemState}
-              onToggleLabel={toggleLabelApproval}
-              onExcludeTag={handleExcludeTag}
-              onAddUserTag={handleAddUserTag}
-            />
+            <>
+              <GalleryGridEnhanced
+                items={visibleItems}
+                cropMode={filters.centerCrop}
+                itemState={itemState}
+                onToggleLabel={toggleLabelApproval}
+                onExcludeTag={handleExcludeTag}
+                onAddUserTag={handleAddUserTag}
+              />
+              {hasMore && (
+                <div ref={loadMoreRef} className="flex justify-center py-4">
+                  {loading ? (
+                    <p className="text-sm text-muted-foreground">Loading more…</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Scroll to load more</p>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>
