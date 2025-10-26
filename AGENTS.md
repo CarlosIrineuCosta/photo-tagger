@@ -32,3 +32,4 @@ Do not commit populated configs; use `config.yaml` as the primary configuration 
 ## Agent Guidance
 
 - Default to UI-first solutions. Do not propose CLI-based fixes or workflows unless explicitly requested by the operator or in an urgent recovery scenario.
+- Coordinate with the GLM and Gemini assistants: for every working session, document actionable tasks for Codex, GLM, and Gemini in `docs/ongoing.md` before execution, keeping assignments current until project completion.

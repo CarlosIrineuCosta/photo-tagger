@@ -1,0 +1,101 @@
+[
+  {
+    "path": "/smoke/new_item.jpg",
+    "metadata": {
+      "mtime": 1.0,
+      "size": 100
+    },
+    "state": {
+      "stage": "new",
+      "saved": false,
+      "selected": [],
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "blocked_reason": null,
+      "pending_reasons": []
+    },
+    "is_new": true,
+    "is_modified": false
+  },
+  {
+    "path": "/smoke/needs_item.jpg",
+    "metadata": {
+      "mtime": 1.0,
+      "size": 100
+    },
+    "state": {
+      "stage": "needs_tags",
+      "saved": false,
+      "selected": [],
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "blocked_reason": null,
+      "pending_reasons": []
+    },
+    "is_new": false,
+    "is_modified": false
+  },
+  {
+    "path": "/smoke/draft_item.jpg",
+    "metadata": {
+      "mtime": 1.0,
+      "size": 100
+    },
+    "state": {
+      "stage": "has_draft",
+      "saved": false,
+      "selected": [
+        "sample"
+      ],
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "blocked_reason": null,
+      "pending_reasons": []
+    },
+    "is_new": false,
+    "is_modified": false
+  },
+  {
+    "path": "/smoke/saved_item.jpg",
+    "metadata": {
+      "mtime": 1.0,
+      "size": 100
+    },
+    "state": {
+      "stage": "saved",
+      "saved": true,
+      "selected": [
+        "sample"
+      ],
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "blocked_reason": null,
+      "pending_reasons": []
+    },
+    "is_new": false,
+    "is_modified": false
+  },
+  {
+    "path": "/smoke/blocked_item.jpg",
+    "metadata": {
+      "mtime": 1.0,
+      "size": 100
+    },
+    "state": {
+      "stage": "blocked",
+      "saved": false,
+      "selected": [],
+      "first_seen": 0.0,
+      "last_processed": null,
+      "last_saved": null,
+      "blocked_reason": "oversized_tiff",
+      "pending_reasons": []
+    },
+    "is_new": false,
+    "is_modified": false
+  }
+]

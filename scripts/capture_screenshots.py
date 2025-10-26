@@ -52,6 +52,21 @@ FEATURES = {
             "Use Resolve/Skip actions for each group",
             "View updated statistics"
         ]
+    },
+    "gallery_status": {
+        "title": "Gallery Status Features",
+        "description": "Stage filtering, summary counts, and inventory management",
+        "steps": [
+            "View GalleryPage with 'All' stage filter selected",
+            "Observe summary chips showing counts for each stage",
+            "Click 'New' stage filter and verify inventory updates",
+            "Click 'Needs tags' stage filter and verify inventory updates",
+            "Click 'Draft' stage filter and verify inventory updates",
+            "Click 'Saved' stage filter and verify inventory updates",
+            "Click 'Blocked' stage filter and verify inventory updates",
+            "Test toggle filters (Medoids only, Only unapproved, Hide saved)",
+            "Verify pagination/infinite scroll works with each stage filter"
+        ]
     }
 }
 

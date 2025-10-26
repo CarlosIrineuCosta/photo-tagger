@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom"
 
 import { StatusStrip, type StatusEntry } from "@/components/StatusStrip"
 import { Topbar } from "@/components/Topbar"
+import { Toaster } from "@/components/ui/toaster"
 import { StatusLogProvider, useStatusLog } from "@/context/status-log"
 
 type AppLayoutProps = {
@@ -25,6 +26,7 @@ function AppLayoutShell() {
         <Outlet />
       </div>
       <StatusStrip items={entries} />
+      <Toaster />
     </div>
   )
 }

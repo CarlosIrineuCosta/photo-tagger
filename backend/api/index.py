@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -10,6 +11,7 @@ import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
+from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -33,6 +35,7 @@ from app.util.telemetry import TelemetryEvent, append_event, read_events, run_te
 
 app = FastAPI(title="Photo Tagger API", version="0.1.0")
 
+logger = logging.getLogger("backend.api.index")
 app.include_router(enhanced_router)
 app.include_router(tags_router)
 
@@ -90,6 +93,41 @@ class GalleryPageResponse(BaseModel):
     summary: GallerySummaryResponse
 
 
+def _build_gallery_labels(
+    base_labels: List[str],
+    selected: List[str],
+    topk: int,
+    filename: str,
+) -> List[LabelEntry]:
+    entries: List[LabelEntry] = []
+    used: set[str] = set()
+    for idx, name in enumerate(selected):
+        clean = name.strip()
+        if not clean or clean in used:
+            continue
+        used.add(clean)
+        score = max(0.1, 0.99 - idx * 0.03)
+        entries.append(LabelEntry(name=clean, score=round(score, 2)))
+
+    filename_lower = filename.lower()
+    suggestion_target = max(topk, len(entries) + topk)
+    suggestion_index = 0
+    for name in base_labels:
+        clean = name.strip()
+        if not clean or clean in used:
+            continue
+        used.add(clean)
+        base_score = 0.65 - 0.05 * suggestion_index
+        if clean in filename_lower or clean.replace(" ", "") in filename_lower:
+            base_score += 0.2
+        score = max(0.1, min(0.95, base_score))
+        entries.append(LabelEntry(name=clean, score=round(score, 2)))
+        suggestion_index += 1
+        if len(entries) >= suggestion_target:
+            break
+    return entries
+
+
 class ProcessStatusResponse(BaseModel):
     status: str
     run_id: str | None = None
@@ -107,6 +145,14 @@ class ThumbPrefetchRequest(BaseModel):
 class ThumbPrefetchResponse(BaseModel):
     job_id: str
     scheduled: int
+
+
+class ThumbPrefetchStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    processed: int
+    total: int
+    errors: List[str] = Field(default_factory=list)
 
 
 class LLMEnhanceRequest(BaseModel):
@@ -992,7 +1038,20 @@ def prefetch_thumbnails(request_data: ThumbPrefetchRequest):
         "errors": errors,
     }
 
+    if errors:
+        logger.warning("Thumbnail prefetch job %s completed with errors: %s", job_id, errors)
+    else:
+        logger.info("Thumbnail prefetch job %s completed successfully (%s/%s)", job_id, processed, scheduled)
+
     return ThumbPrefetchResponse(job_id=job_id, scheduled=scheduled)
+
+
+@app.get("/api/thumbs/prefetch/{job_id}", response_model=ThumbPrefetchStatusResponse)
+def get_prefetch_job_status(job_id: str):
+    job = THUMB_PREFETCH_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Prefetch job not found")
+    return ThumbPrefetchStatusResponse(job_id=job_id, **job)
 
 
 @app.get("/api/thumbs/{thumb_name}")
@@ -1188,51 +1247,9 @@ def process_images():
         details={"stdout": (result.stdout or "").strip()},
     )
     append_event(telemetry_path, completion_event)
-    _update_process_status(status="idle", run_id=run_id, detail="Completed", last_event=completion_event.__dict__)
+    _update_process_status(status="idle", run_id=run_id, detail="Completed", last_event=asdict(completion_event))
 
     return ProcessResponse(status="ok", run_id=run_id, detail=(result.stdout or "").strip())
-
-
-class ProcessStatusResponse(BaseModel):
-    status: str
-    run_id: str | None = None
-    started: float | None = None
-    detail: str | None = None
-    last_event: dict | None = None
-    telemetry: List[dict] = Field(default_factory=list)
-
-
-class ThumbPrefetchRequest(BaseModel):
-    paths: List[str] = Field(default_factory=list)
-    overwrite: bool = False
-
-
-class ThumbPrefetchResponse(BaseModel):
-    job_id: str
-    scheduled: int
-
-
-class LLMEnhanceRequest(BaseModel):
-    tags: List[str] = Field(default_factory=list)
-    language: str | None = None
-    max_suggestions: int = 5
-
-
-class LLMEnhanceResponse(BaseModel):
-    original_tags: List[str]
-    enhanced_tags: List[str]
-    notes: str
-
-
-class BenchmarkRequest(BaseModel):
-    image_count: int = Field(100, ge=1)
-    device: str = Field("cpu", min_length=1)
-
-
-class BenchmarkResponse(BaseModel):
-    status: str
-    detail: str
-    duration_ms: float
 
 
 def _update_process_status(**updates) -> None:
@@ -1247,7 +1264,7 @@ def get_process_status():
     telemetry_events: List[dict] = []
     if isinstance(run_id, str):
         telemetry_path = run_telemetry_path(run_dir, run_id)
-        telemetry_events = [event.__dict__ for event in read_events(telemetry_path, limit=20)]
+        telemetry_events = [asdict(event) for event in read_events(telemetry_path, limit=20)]
     return ProcessStatusResponse(
         status=str(PROCESS_STATUS.get("status")),
         run_id=run_id if isinstance(run_id, str) else None,

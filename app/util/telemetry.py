@@ -15,7 +15,7 @@ class TelemetryEvent:
 
     stage: str
     event: str
-    duration_ms: float
+    duration_ms: float = 0.0
     item_count: int | None = None
     run_id: str | None = None
     timestamp: float = field(default_factory=lambda: time.time())

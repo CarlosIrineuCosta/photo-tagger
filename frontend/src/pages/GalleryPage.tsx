@@ -10,16 +10,19 @@ import {
   exportData,
   fetchGallery,
   prefetchThumbnails,
+  getPrefetchJobStatus,
   processImages,
   saveTag,
   type ApiGalleryItem,
   type ApiLabel,
   type ReviewStage,
   type GalleryResponse,
+  type PrefetchJobStatus,
 } from "@/lib/api"
 import { useStatusLog } from "@/context/status-log"
 import { useIntersectionObserver } from "@/hooks/useIntersectionObserver"
 import { useMediaQuery } from "@/hooks/use-media-query"
+import { useToast } from "@/hooks/use-toast"
 
 type FilterKey = "medoidsOnly" | "unapprovedOnly" | "hideAfterSave" | "centerCrop"
 
@@ -48,6 +51,7 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
 
 export function GalleryPage() {
   const { push: pushStatus } = useStatusLog()
+  const { toast } = useToast()
   const isMobile = useMediaQuery("(max-width: 1023px)")
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
   const [stageFilter, setStageFilter] = useState<ReviewStage | "all">("all")
@@ -63,6 +67,7 @@ export function GalleryPage() {
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [hasMore, setHasMore] = useState(true)
   const [isPrefetching, setIsPrefetching] = useState(false)
+  const [prefetchJob, setPrefetchJob] = useState<{ id: string; total: number; processed: number } | null>(null)
   const [summary, setSummary] = useState<GalleryResponse["summary"] | null>(null)
   const cursorRef = useRef<string | undefined>(undefined)
 
@@ -284,19 +289,165 @@ export function GalleryPage() {
     setIsPrefetching(true)
     try {
       const response = await prefetchThumbnails()
+      setPrefetchJob({ id: response.job_id, total: response.scheduled, processed: 0 })
       pushStatus({
-        message: `Thumbnail prefetch queued for ${response.scheduled} file${response.scheduled === 1 ? "" : "s"}.`,
+        message: `Thumbnail prefetch job ${response.job_id} started for ${response.scheduled} file${response.scheduled === 1 ? "" : "s"}.`,
         level: response.scheduled ? "success" : "info",
       })
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+
+      // Show toast for immediate user feedback
+      toast({
+        title: "Thumbnail Prefetch Failed",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 8000,
+      })
+
       pushStatus({
-        message: `Prefetch failed: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Prefetch failed: ${errorMessage}`,
         level: "error",
       })
-    } finally {
+
+      // Add more detailed error information for common issues
+      if (errorMessage.includes("500") || errorMessage.includes("Internal Server Error")) {
+        toast({
+          title: "Backend Error",
+          description: "Gallery will continue to function, but thumbnails may load slower.",
+          variant: "default",
+          duration: 6000,
+        })
+        pushStatus({
+          message: "Backend server error occurred. Gallery will continue to function, but thumbnails may load slower.",
+          level: "info",
+        })
+      } else if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+        pushStatus({
+          message: "Prefetch endpoint not available. Please check if the backend is running the latest version.",
+          level: "error",
+        })
+      } else if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
+        toast({
+          title: "Network Error",
+          description: "Please check your connection and try again.",
+          variant: "destructive",
+          duration: 8000,
+        })
+        pushStatus({
+          message: "Network error occurred. Please check your connection and try again.",
+          level: "error",
+        })
+      }
+
       setIsPrefetching(false)
     }
   }, [isPrefetching, pushStatus])
+
+  // Poll for prefetch job status
+  useEffect(() => {
+    if (!prefetchJob) return
+
+    let consecutiveErrors = 0
+    const maxConsecutiveErrors = 3
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const status: PrefetchJobStatus = await getPrefetchJobStatus(prefetchJob.id)
+        consecutiveErrors = 0 // Reset error counter on successful request
+
+        if (status.status === "complete") {
+          toast({
+            title: "Prefetch Complete",
+            description: `Successfully processed ${status.processed}/${status.total} thumbnails.`,
+            variant: "success",
+            duration: 5000,
+          })
+          pushStatus({
+            message: `Thumbnail prefetch job ${status.job_id} completed successfully (${status.processed}/${status.total} files).`,
+            level: "success",
+          })
+          setPrefetchJob(null)
+          setIsPrefetching(false)
+          clearInterval(pollInterval)
+        } else if (status.status === "error") {
+          toast({
+            title: "Prefetch Completed with Errors",
+            description: `${status.processed}/${status.total} files processed. Some files may have failed.`,
+            variant: "destructive",
+            duration: 8000,
+          })
+          pushStatus({
+            message: `Thumbnail prefetch job ${status.job_id} completed with errors (${status.processed}/${status.total} files).`,
+            level: "error",
+          })
+          if (status.errors.length > 0) {
+            // Show first few errors to avoid spamming the log
+            const errorsToShow = status.errors.slice(0, 3)
+            errorsToShow.forEach(error => {
+              pushStatus({
+                message: `Prefetch error: ${error}`,
+                level: "error",
+              })
+            })
+            if (status.errors.length > 3) {
+              pushStatus({
+                message: `... and ${status.errors.length - 3} more errors (check backend logs for details)`,
+                level: "info",
+              })
+            }
+          }
+          setPrefetchJob(null)
+          setIsPrefetching(false)
+          clearInterval(pollInterval)
+        } else if (status.status === "processing" || status.status === "queued") {
+          // Update progress message and job state
+          setPrefetchJob(prev => prev ? { ...prev, processed: status.processed } : null)
+          // Only log progress updates every 10% to reduce log spam
+          const progressPercent = status.total > 0
+            ? Math.round((status.processed / status.total) * 100)
+            : 100
+          if (progressPercent % 10 === 0 || status.processed === status.total || status.total === 0) {
+            pushStatus({
+              message: `Thumbnail prefetch job ${status.job_id}: ${status.processed}/${status.total} files processed (${progressPercent}%).`,
+              level: "info",
+            })
+          }
+        }
+      } catch (err) {
+        consecutiveErrors++
+        const errorMessage = err instanceof Error ? err.message : String(err)
+
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          toast({
+            title: "Status Tracking Disabled",
+            description: "Failed to track prefetch job status after multiple attempts.",
+            variant: "destructive",
+            duration: 8000,
+          })
+          pushStatus({
+            message: `Failed to check prefetch job status after ${maxConsecutiveErrors} attempts: ${errorMessage}`,
+            level: "error",
+          })
+          pushStatus({
+            message: "Gallery will continue to function, but prefetch status tracking is disabled.",
+            level: "info",
+          })
+          setPrefetchJob(null)
+          setIsPrefetching(false)
+          clearInterval(pollInterval)
+        } else {
+          // Log the error but continue polling
+          pushStatus({
+            message: `Error checking prefetch status (attempt ${consecutiveErrors}/${maxConsecutiveErrors}): ${errorMessage}`,
+            level: "error",
+          })
+        }
+      }
+    }, 2000) // Poll every 2 seconds
+
+    return () => clearInterval(pollInterval)
+  }, [prefetchJob, pushStatus])
 
 
   const handleProcessImages = useCallback(async () => {
@@ -352,36 +503,45 @@ export function GalleryPage() {
           setStageFilter(value)
           pushStatus({ message: `Filter: ${value}`, level: "info" })
         }}
+        summaryCounts={summary?.counts}
       />
-      <main className="mx-auto flex w-full max-w-[1920px] gap-3 px-3 py-5 lg:px-5 lg:py-6">
+      <main className="mx-auto flex w-full max-w-[1920px] gap-4 px-4 py-6 lg:px-6 lg:py-8">
         {workflowOpen && !isMobile && (
-          <aside className="hidden w-[300px] lg:block">
-            <WorkflowSidebar steps={WORKFLOW_STEPS} className="h-[calc(100vh-190px)]" />
+          <aside className="hidden w-[320px] lg:block">
+            <WorkflowSidebar steps={WORKFLOW_STEPS} className="h-[calc(100vh-200px)]" />
           </aside>
         )}
-        <div className="flex-1">
-          {error && <p className="pb-4 text-sm text-destructive">{error}</p>}
+        <div className="flex-1 min-w-0">
+          {error && (
+            <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
           <NewFileBanner
             newCount={newCount}
             onPrefetchThumbnails={handlePrefetchThumbnails}
             isPrefetching={isPrefetching}
+            prefetchProgress={prefetchJob ? { processed: prefetchJob.processed, total: prefetchJob.total } : null}
+            prefetchJobId={prefetchJob?.id}
           />
           {loading && !items.length ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
               {Array.from({ length: 12 }).map((_, index) => (
                 <PlaceholderCard key={index} className="h-[220px]" />
               ))}
             </div>
           ) : (
             <>
-              <GalleryGrid
-                items={visibleItems}
-                cropMode={filters.centerCrop}
-                itemState={itemState}
-                onToggleLabel={toggleLabelApproval}
-              />
+              <div className="mb-2">
+                <GalleryGrid
+                  items={visibleItems}
+                  cropMode={filters.centerCrop}
+                  itemState={itemState}
+                  onToggleLabel={toggleLabelApproval}
+                />
+              </div>
               {loading && items.length > 0 && (
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
                   {Array.from({ length: 6 }).map((_, index) => (
                     <PlaceholderCard key={`placeholder-${index}`} className="h-[220px]" />
                   ))}
@@ -389,12 +549,13 @@ export function GalleryPage() {
               )}
               {/* Load more trigger for infinite scroll */}
               {hasMore && (
-                <div ref={loadMoreRef} className="flex justify-center py-4">
-                  {loading ? (
-                    <p className="text-sm text-muted-foreground">Loading more…</p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Scroll to load more</p>
-                  )}
+                <div ref={loadMoreRef} className="flex justify-center py-6">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    {loading && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
+                    )}
+                    <span>{loading ? "Loading more…" : "Scroll to load more"}</span>
+                  </div>
                 </div>
               )}
             </>

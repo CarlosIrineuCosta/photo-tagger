@@ -119,6 +119,22 @@ The Gallery page is your primary interface for reviewing and approving image tag
    - Oversized TIFFs (default limit 1 GB, configurable via `max_tiff_mb`) are marked as `Blocked` with detailed reasons so you can convert or exclude them before the next pass.
    - Run `/api/process/benchmark` (or use the UI shortcut once exposed) to capture CPU-only timing on a small sample without touching your existing review state.
 
+### CLI Telemetry
+
+The CLI now generates detailed performance and activity logs for each run.
+When you execute a command like `python -m app.cli.tagger run ...`, a `telemetry.jsonl` file is created in the run directory (`runs/<run_id>/telemetry.jsonl`).
+
+This file contains a series of JSON objects, one per line, each representing a `TelemetryEvent`.
+Each event includes:
+- `stage`: The pipeline stage (e.g., `scan`, `thumbs`, `embed`, `score`, `medoids`, `export`, `run`).
+- `event`: The event type, either `start` or `complete`.
+- `duration_ms`: The duration of the stage in milliseconds (for `complete` events).
+- `item_count`: The number of items processed in the stage.
+- `run_id`: The ID of the run.
+- `timestamp`: The timestamp of the event.
+
+This data is useful for performance analysis and debugging.
+
 ### Tags Page
 
 The Tags page is where you manage your vocabulary and promote orphan tags:

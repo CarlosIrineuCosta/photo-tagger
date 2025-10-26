@@ -21,6 +21,7 @@ from app.core import scan as scan_core
 from app.core import score as score_core
 from app.core import thumbs as thumbs_core
 from app.util import metrics as metrics_core
+from app.util.telemetry import TelemetryEvent, append_event, run_telemetry_path
 
 
 RUN_RECORD = "run.json"
@@ -249,6 +250,9 @@ def _export_new_tags_csv(
 def cmd_scan(args: argparse.Namespace) -> str:
     run_id = args.run_id or _generate_run_id()
     run_path = _ensure_run_path(args.run_dir, run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="scan", event="start", run_id=run_id))
+    start_telemetry = time.time()
     include_exts = args.include or sorted(scan_core.IMAGE_EXTENSIONS)
     start = time.time()
     image_paths = scan_core.scan_directory(
@@ -264,6 +268,17 @@ def cmd_scan(args: argparse.Namespace) -> str:
         include_exts=list(include_exts),
         image_count=len(image_paths),
     )
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="scan",
+            event="complete",
+            run_id=run_id,
+            duration_ms=duration_ms,
+            item_count=len(image_paths),
+        ),
+    )
     _append_log(run_path, f"scan completed ({len(image_paths)} files) in {_duration(start):.2f}s")
     print(f"[scan] run_id={run_id} files={len(image_paths)}")
     if args.run_id is None:
@@ -273,6 +288,9 @@ def cmd_scan(args: argparse.Namespace) -> str:
 
 def cmd_thumbs(args: argparse.Namespace) -> None:
     run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), args.run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="thumbs", event="start", run_id=args.run_id))
+    start_telemetry = time.time()
     image_paths = _read_image_paths(run_path)
     if not image_paths:
         raise RuntimeError("No images available. Run 'scan' first.")
@@ -286,6 +304,17 @@ def cmd_thumbs(args: argparse.Namespace) -> None:
     )
     _write_json(_thumbs_file(run_path), thumbs)
     _update_run_record(run_path, thumbnail_cache=str(Path(args.cache_root).resolve()))
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="thumbs",
+            event="complete",
+            run_id=args.run_id,
+            duration_ms=duration_ms,
+            item_count=len(thumbs),
+        ),
+    )
     _append_log(run_path, f"thumbs completed ({len(thumbs)} thumbnails) in {_duration(start):.2f}s")
     print(f"[thumbs] generated {len(thumbs)} thumbnails")
 
@@ -336,6 +365,9 @@ def _hash_labels(labels_list: Sequence[str]) -> str:
 
 def cmd_embed(args: argparse.Namespace) -> None:
     run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), args.run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="embed", event="start", run_id=args.run_id))
+    start_telemetry = time.time()
     image_paths = _read_image_paths(run_path)
     if not image_paths:
         raise RuntimeError("No images available. Run 'scan' first.")
@@ -361,12 +393,26 @@ def cmd_embed(args: argparse.Namespace) -> None:
         device=str(device),
         image_embedding_shape=list(embeddings.shape),
     )
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="embed",
+            event="complete",
+            run_id=args.run_id,
+            duration_ms=duration_ms,
+            item_count=len(image_paths),
+        ),
+    )
     _append_log(run_path, f"embed completed ({len(image_paths)} images) in {_duration(start):.2f}s")
     print(f"[embed] saved embeddings shape={embeddings.shape}")
 
 
 def cmd_score(args: argparse.Namespace) -> None:
     run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), args.run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="score", event="start", run_id=args.run_id))
+    start_telemetry = time.time()
     image_paths = _read_image_paths(run_path)
     if not image_paths:
         raise RuntimeError("No images available. Run 'scan' first.")
@@ -453,12 +499,26 @@ def cmd_score(args: argparse.Namespace) -> None:
     if label_pack_dir:
         record_update["label_pack"] = label_pack_dir
     _update_run_record(run_path, **record_update)
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="score",
+            event="complete",
+            run_id=args.run_id,
+            duration_ms=duration_ms,
+            item_count=len(serialized),
+        ),
+    )
     _append_log(run_path, f"score completed ({len(serialized)} images) in {_duration(start):.2f}s")
     print(f"[score] scored {len(serialized)} images using {len(labels_list)} labels")
 
 
 def cmd_medoids(args: argparse.Namespace) -> None:
     run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), args.run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="medoids", event="start", run_id=args.run_id))
+    start_telemetry = time.time()
     image_paths = _read_image_paths(run_path)
     if not image_paths:
         raise RuntimeError("No images available. Run 'scan' first.")
@@ -566,6 +626,17 @@ def cmd_medoids(args: argparse.Namespace) -> None:
             writer.writerow([folder, cluster_type, cluster_tag, label_hint, cluster_size, rel_path, f"{cosine:.6f}"])
 
     _update_run_record(run_path, medoids_file=str(output_path))
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="medoids",
+            event="complete",
+            run_id=args.run_id,
+            duration_ms=duration_ms,
+            item_count=len(rows),
+        ),
+    )
     _append_log(run_path, f"medoids completed ({len(rows)} folders) in {_duration(start):.2f}s")
     print(f"[medoids] wrote {len(rows)} rows to {output_path}")
 
@@ -601,6 +672,9 @@ def _load_approved_map(path: Path | None) -> Dict[str, List[str]]:
 
 def cmd_export(args: argparse.Namespace) -> None:
     run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), args.run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="export", event="start", run_id=args.run_id))
+    start_telemetry = time.time()
     image_paths = _read_image_paths(run_path)
     if not image_paths:
         raise RuntimeError("No images available. Run 'scan' first.")
@@ -648,12 +722,26 @@ def cmd_export(args: argparse.Namespace) -> None:
     export_path = Path(args.output or _export_file(run_path))
     export_core.write_csv(rows, export_path)
     _update_run_record(run_path, export_csv=str(export_path))
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="export",
+            event="complete",
+            run_id=args.run_id,
+            duration_ms=duration_ms,
+            item_count=len(rows),
+        ),
+    )
     _append_log(run_path, f"export completed ({len(rows)} rows) in {_duration(start):.2f}s")
     print(f"[export] wrote {export_path}")
 
 
 def cmd_sidecars(args: argparse.Namespace) -> None:
     run_path = _ensure_run_path(args.run_dir, args.run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), args.run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="sidecars", event="start", run_id=args.run_id))
+    start_telemetry = time.time()
     source_csv = Path(args.source or _export_file(run_path))
     if not source_csv.exists():
         raise FileNotFoundError(f"Export CSV not found at {source_csv}. Run 'export' first.")
@@ -678,6 +766,17 @@ def cmd_sidecars(args: argparse.Namespace) -> None:
 
     start = time.time()
     export_core.write_sidecars(paths, keywords, batch_size=args.batch_size)
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="sidecars",
+            event="complete",
+            run_id=args.run_id,
+            duration_ms=duration_ms,
+            item_count=len(paths),
+        ),
+    )
     _append_log(run_path, f"sidecars completed ({len(paths)} files) in {_duration(start):.2f}s")
     print(f"[sidecars] wrote metadata for {len(paths)} files")
 
@@ -708,6 +807,9 @@ def cmd_metrics(args: argparse.Namespace) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     run_id = args.run_id or _generate_run_id()
     run_path = _ensure_run_path(args.run_dir, run_id, create=True)
+    telemetry_path = run_telemetry_path(Path(args.run_dir), run_id)
+    append_event(telemetry_path, TelemetryEvent(stage="run", event="start", run_id=run_id))
+    start_telemetry = time.time()
 
     print(f"[run] starting run_id={run_id}")
     scan_args = argparse.Namespace(
@@ -801,6 +903,16 @@ def cmd_run(args: argparse.Namespace) -> None:
         else:
             print("[run] no new user-added tags discovered")
 
+    duration_ms = (time.time() - start_telemetry) * 1000
+    append_event(
+        telemetry_path,
+        TelemetryEvent(
+            stage="run",
+            event="complete",
+            run_id=run_id,
+            duration_ms=duration_ms,
+        ),
+    )
     _append_log(run_path, "run completed")
     print(f"[run] completed run_id={run_id}")
 
