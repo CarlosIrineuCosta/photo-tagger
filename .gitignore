@@ -60,4 +60,4 @@ runs/
 archive/
 !docs/archive/
 data/
-/tests/images/
+/tests/images/node_modules/
