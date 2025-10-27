@@ -2,6 +2,31 @@
 
 ## Active Session Plan (2025-10-25)
 
+## Active Session Plan (2025-10-27)
+
+### Shared Focus
+
+- [ ] Establish reliable ingestion of exposure compensation and white balance temperature from existing XMP sidecars, and verify the data flows from pipeline to UI without regressions.
+- [ ] Capture representative dark-exposure samples so all assistants can exercise the metadata path while guarding highlight preservation use cases.
+
+### Codex 2025-10-27 – XMP Metadata Pipeline
+
+- [ ] Audit current metadata loaders (`app/core/scan.py`, related helpers) to document how EXIF/XMP is parsed today and what fields reach downstream stages.
+- [ ] Prototype XMP parsing for exposure (`Exposure2012`, `ExposureCompensation`, `crs:Exposure`) and color temperature (`ColorTemperature`, `WhiteBalance`, `crs:Temperature`) using existing dependencies; surface normalized values in the scan payload or a new metadata structure.
+- [ ] Add regression coverage (unit + smoke fixture) ensuring the parsed exposure and temperature values persist through telemetry/run artifacts for Gemini + GLM consumers.
+
+### GLM 2025-10-27 – UI Surfacing
+
+- [ ] Coordinate with Codex on the metadata shape, then bind the new exposure + temperature fields into gallery/detail views (consider histogram overlays or metadata tooltips without new CLI steps).
+- [ ] Update review UI affordances to highlight when imported XMP adjustments differ from computed scores, so operators can quickly triage dark-shot corrections.
+- [ ] Validate that existing thumbnail and stage components remain stable when the new metadata arrives, adding Vitest coverage if needed.
+
+### Gemini 2025-10-27 – Pipeline Validation
+
+- [ ] Supply or curate sample images + XMP sidecars that cover underexposed, neutral, and corrected cases; document the dataset path in `tests/smoke/`.
+- [ ] Extend the CLI smoke test to assert exposure/temperature propagation (runs/<timestamp>/telemetry.jsonl + cache summaries) and capture before/after metrics.
+- [ ] Cross-check parsed values against Lightroom or other ground truth exports to confirm fidelity and note any normalization edge cases for follow-up.
+
 ### Shared Focus
 
 - [ ] Confirm that Photo Tagger stack boots cleanly (FastAPI + Vite + CLI) after resolving `ThumbPrefetchResponse` import failure logged in `backend.log`.
